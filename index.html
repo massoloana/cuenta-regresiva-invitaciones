@@ -1,0 +1,47 @@
+<div id="countdown" style="font-family: Georgia, 'Times New Roman', serif; text-align: center; padding: 24px; background: transparent; color: #2E2A24;">
+  <div style="display: flex; justify-content: center; gap: 32px;">
+    <div>
+      <div id="days" style="font-size: 40px; font-weight: 400; line-height: 1;">00</div>
+      <div style="font-size: 11px; letter-spacing: 2px; text-transform: uppercase; margin-top: 6px; color: #6b6459;">Días</div>
+    </div>
+    <div>
+      <div id="hours" style="font-size: 40px; font-weight: 400; line-height: 1;">00</div>
+      <div style="font-size: 11px; letter-spacing: 2px; text-transform: uppercase; margin-top: 6px; color: #6b6459;">Horas</div>
+    </div>
+    <div>
+      <div id="mins" style="font-size: 40px; font-weight: 400; line-height: 1;">00</div>
+      <div style="font-size: 11px; letter-spacing: 2px; text-transform: uppercase; margin-top: 6px; color: #6b6459;">Min</div>
+    </div>
+    <div>
+      <div id="secs" style="font-size: 40px; font-weight: 400; line-height: 1;">00</div>
+      <div style="font-size: 11px; letter-spacing: 2px; text-transform: uppercase; margin-top: 6px; color: #6b6459;">Seg</div>
+    </div>
+  </div>
+</div>
+
+<script>
+  var target = new Date("2027-12-15T21:00:00-03:00").getTime();
+
+  function update() {
+    var now = new Date().getTime();
+    var diff = target - now;
+
+    if (diff <= 0) {
+      document.getElementById("countdown").innerHTML = "¡Hoy es el gran día!";
+      return;
+    }
+
+    var d = Math.floor(diff / (1000 * 60 * 60 * 24));
+    var h = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+    var m = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+    var s = Math.floor((diff % (1000 * 60)) / 1000);
+
+    document.getElementById("days").textContent = String(d).padStart(2, "0");
+    document.getElementById("hours").textContent = String(h).padStart(2, "0");
+    document.getElementById("mins").textContent = String(m).padStart(2, "0");
+    document.getElementById("secs").textContent = String(s).padStart(2, "0");
+  }
+
+  update();
+  setInterval(update, 1000);
+</script>

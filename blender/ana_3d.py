@@ -6,7 +6,7 @@ Uso en Blender (4.2 o superior):
   2. O desde terminal:
        blender --background --python ana_3d.py -- --render render.png --save ana.blend
 
-Cada letra es una curva Bezier con bevel redondo: para retocar la forma,
+Todo el nombre es una sola curva Bezier con bevel redondo: para retocar la forma,
 seleccioná el objeto "ana_trazo", entrá en Edit Mode (Tab) y mové los puntos.
 """
 import sys
@@ -25,33 +25,28 @@ ROSA = (1.0, 0.08, 0.32, 1.0)
 ROSA_FUCSIA = (0.85, 0.02, 0.38, 1.0)
 FONDO = (1.0, 0.78, 0.88, 1.0)
 
-# Cada letra es un trazo propio (x, y) con altura de la "x" = 1.
-# Se inclinan, rotan un poco y se superponen en profundidad, como globos.
-LETRA_A = [
-    (0.70, 0.80), (0.50, 0.99), (0.15, 0.95), (-0.08, 0.66), (-0.10, 0.30),
-    (0.05, 0.04), (0.32, 0.00), (0.55, 0.20), (0.68, 0.55), (0.74, 0.97),
-    (0.71, 0.50), (0.72, 0.15), (0.82, 0.00), (0.98, 0.04), (1.08, 0.20),
+# Trazo continuo de "ana" en (x, y, profundidad), altura de la "x" = 1.
+# La profundidad separa los tramos dobles para que se vean dos tubos juntos.
+TRAZO = [
+    # --- primera "a" (arranca escondida contra el palito)
+    (0.70, 0.80, 0.05), (0.50, 0.99, 0.04), (0.15, 0.95, 0.02), (-0.08, 0.66, 0.00),
+    (-0.10, 0.30, 0.00), (0.05, 0.04, 0.02), (0.32, 0.00, 0.04), (0.55, 0.20, 0.04),
+    (0.68, 0.55, 0.00), (0.74, 0.97, -0.04),
+    (0.71, 0.50, 0.04), (0.72, 0.15, 0.04), (0.82, 0.00, 0.03), (0.98, 0.03, 0.02),
+    # --- "n" doble: subida y bajada paralelas
+    (1.12, 0.18, 0.06), (1.20, 0.52, 0.08), (1.24, 0.85, 0.06), (1.32, 1.02, 0.00),
+    (1.44, 0.96, -0.06), (1.50, 0.65, -0.08), (1.50, 0.30, -0.08), (1.47, 0.02, -0.06),
+    (1.50, 0.42, 0.02), (1.62, 0.80, 0.04), (1.82, 1.00, 0.04), (2.04, 0.92, 0.04),
+    (2.12, 0.60, 0.04), (2.12, 0.25, 0.04), (2.18, 0.04, 0.03), (2.34, 0.00, 0.00),
+    # --- conector por arriba (techo doble) + segunda "a"
+    (2.46, 0.25, -0.06), (2.52, 0.64, -0.10), (2.64, 1.02, -0.12), (2.88, 1.22, -0.12),
+    (3.16, 1.18, -0.10), (3.31, 0.97, -0.04),
+    (3.22, 0.80, 0.06), (3.00, 0.90, 0.08), (2.82, 0.85, 0.08), (2.70, 0.60, 0.06),
+    (2.68, 0.30, 0.04), (2.82, 0.05, 0.03), (3.07, 0.00, 0.02), (3.27, 0.20, 0.02),
+    (3.38, 0.55, 0.00), (3.42, 0.95, -0.02),
+    (3.39, 0.50, 0.04), (3.40, 0.15, 0.04), (3.50, 0.00, 0.03), (3.66, 0.04, 0.02),
+    (3.78, 0.22, 0.00),
 ]
-LETRA_N = [
-    (-0.08, 0.62), (0.02, 0.90), (0.15, 1.00), (0.20, 0.85), (0.17, 0.45),
-    (0.14, 0.00), (0.20, 0.50), (0.36, 0.86), (0.58, 1.00), (0.78, 0.88),
-    (0.83, 0.55), (0.82, 0.20), (0.90, 0.02), (1.06, 0.00), (1.20, 0.16),
-]
-# (puntos, desplazamiento x, desplazamiento y, profundidad, rotación en grados)
-LETRAS = [
-    (LETRA_A, 0.00, 0.00, 0.00, 3),
-    (LETRA_N, 1.20, 0.06, -0.12, -2),
-    (LETRA_A, 2.45, -0.02, 0.05, 4),
-]
-
-
-def ubicar(puntos, dx, dy, rot):
-    c, s = math.cos(math.radians(rot)), math.sin(math.radians(rot))
-    out = []
-    for x, y in puntos:
-        x = x + y * INCLINACION
-        out.append((x * c - y * s + dx, x * s + y * c + dy))
-    return out
 
 
 def limpiar_escena():
@@ -127,17 +122,12 @@ def crear_trazo(mat):
     obj.data.materials.append(mat)
     bpy.context.collection.objects.link(obj)
 
-    puntas = []
-    for puntos, dx, dy, prof, rot in LETRAS:
-        pts = ubicar(puntos, dx, dy, rot)
-        spline = curva.splines.new("BEZIER")
-        spline.bezier_points.add(len(pts) - 1)
-        for i, (bp, (x, y)) in enumerate(zip(spline.bezier_points, pts)):
-            # leve ondulación en profundidad para que se vea más orgánico
-            z = prof + 0.06 * math.sin(i * 0.9) if i else prof + 0.05
-            bp.co = (x, z, y)
-            bp.handle_left_type = bp.handle_right_type = "AUTO"
-        puntas += [spline.bezier_points[0].co.copy(), spline.bezier_points[-1].co.copy()]
+    spline = curva.splines.new("BEZIER")
+    spline.bezier_points.add(len(TRAZO) - 1)
+    for bp, (x, y, z) in zip(spline.bezier_points, TRAZO):
+        bp.co = (x + y * INCLINACION, z, y)
+        bp.handle_left_type = bp.handle_right_type = "AUTO"
+    puntas = [spline.bezier_points[0].co.copy(), spline.bezier_points[-1].co.copy()]
 
     # Puntas redondeadas e infladas tipo globo
     for i, p in enumerate(puntas):
@@ -156,8 +146,8 @@ def crear_escena(obj):
     scene = bpy.context.scene
 
     # Centrar
-    obj.location = (-1.95, 0, -0.5)
-    obj.rotation_euler = (math.radians(6), 0, math.radians(-8))
+    obj.location = (-1.95, 0, -0.55)
+    obj.rotation_euler = (math.radians(4), 0, math.radians(-6))
 
     # Mundo rosado claro
     world = bpy.data.worlds.new("fondo")

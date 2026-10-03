@@ -24,6 +24,9 @@ NARANJA_CLARO = (1.0, 0.32, 0.03, 1.0)
 ROSA = (1.0, 0.08, 0.32, 1.0)
 ROSA_FUCSIA = (0.85, 0.02, 0.38, 1.0)
 FONDO = (1.0, 0.78, 0.88, 1.0)
+EXPOSICION = -1.0
+FONDO_ARRIBA = (1.0, 0.86, 0.92, 1.0)
+FONDO_ABAJO = (1.0, 0.70, 0.82, 1.0)
 
 # Trazo continuo de "ana" en (x, y, profundidad), altura de la "x" = 1.
 # La profundidad separa los tramos dobles para que se vean dos tubos juntos.
@@ -61,12 +64,15 @@ def crear_material():
 
     out = nodes.new("ShaderNodeOutputMaterial")
     bsdf = nodes.new("ShaderNodeBsdfPrincipled")
-    bsdf.inputs["Roughness"].default_value = 0.22
+    # Plástico/globo laqueado: base apenas satinada + capa de barniz espejada
+    bsdf.inputs["Roughness"].default_value = 0.14
+    bsdf.inputs["Specular IOR Level"].default_value = 0.6
     bsdf.inputs["Coat Weight"].default_value = 1.0
-    bsdf.inputs["Coat Roughness"].default_value = 0.03
-    bsdf.inputs["Subsurface Weight"].default_value = 0.0
-    bsdf.inputs["Subsurface Radius"].default_value = (1.0, 0.4, 0.4)
-    bsdf.inputs["Subsurface Scale"].default_value = 0.08
+    bsdf.inputs["Coat Roughness"].default_value = 0.0
+    bsdf.inputs["Coat IOR"].default_value = 1.55
+    # Un poco de luz que entra en el material, como gomita/caramelo
+    bsdf.inputs["Subsurface Weight"].default_value = 0.15
+    bsdf.inputs["Subsurface Scale"].default_value = 0.06
     links.new(bsdf.outputs["BSDF"], out.inputs["Surface"])
 
     # Degradé: mezcla la posición horizontal con una onda vertical para que
@@ -105,7 +111,24 @@ def crear_material():
         el.position = pos
         el.color = color
     links.new(mezcla.outputs["Value"], rampa.inputs["Fac"])
-    links.new(rampa.outputs["Color"], bsdf.inputs["Base Color"])
+
+    # Bordes más saturados/oscuros y frente más luminoso (efecto "inflado")
+    borde = nodes.new("ShaderNodeLayerWeight")
+    borde.inputs["Blend"].default_value = 0.35
+    profundo = nodes.new("ShaderNodeMix")
+    profundo.data_type = "RGBA"
+    profundo.blend_type = "MULTIPLY"
+    profundo.inputs["Factor"].default_value = 1.0
+    profundo.inputs["B"].default_value = (0.85, 0.35, 0.55, 1.0)
+    links.new(rampa.outputs["Color"], profundo.inputs["A"])
+    color = nodes.new("ShaderNodeMix")
+    color.data_type = "RGBA"
+    links.new(borde.outputs["Facing"], color.inputs["Factor"])
+    links.new(rampa.outputs["Color"], color.inputs["A"])
+    links.new(profundo.outputs["Result"], color.inputs["B"])
+
+    links.new(color.outputs["Result"], bsdf.inputs["Base Color"])
+    links.new(rampa.outputs["Color"], bsdf.inputs["Subsurface Radius"])
     return mat
 
 
@@ -149,39 +172,58 @@ def crear_escena(obj):
     obj.location = (-1.95, 0, -0.55)
     obj.rotation_euler = (math.radians(4), 0, math.radians(-6))
 
-    # Mundo rosado claro
+    # Mundo rosado claro (luz ambiente suave que tiñe las sombras de rosa)
     world = bpy.data.worlds.new("fondo")
     scene.world = world
     world.use_nodes = True
     world.node_tree.nodes["Background"].inputs["Color"].default_value = FONDO
-    world.node_tree.nodes["Background"].inputs["Strength"].default_value = 0.6
+    world.node_tree.nodes["Background"].inputs["Strength"].default_value = 0.8
 
-    # Pared de fondo para sombras suaves
-    bpy.ops.mesh.primitive_plane_add(size=40, location=(0, 1.2, 0), rotation=(math.pi / 2, 0, 0))
+    # Pared de fondo lejana con degradé: más clara arriba, como en la referencia
+    bpy.ops.mesh.primitive_plane_add(size=60, location=(0, 3.0, 0), rotation=(math.pi / 2, 0, 0))
     pared = bpy.context.active_object
     pared.name = "fondo"
     pm = bpy.data.materials.new("fondo")
     pm.use_nodes = True
-    pb = pm.node_tree.nodes["Principled BSDF"]
-    pb.inputs["Base Color"].default_value = FONDO
-    pb.inputs["Roughness"].default_value = 1.0
+    pn, pl = pm.node_tree.nodes, pm.node_tree.links
+    # Emisión: el fondo se ve exactamente del rosa elegido, sin manchas de luz
+    pn.remove(pn["Principled BSDF"])
+    pb = pn.new("ShaderNodeEmission")
+    pb.inputs["Strength"].default_value = 2.0 ** -EXPOSICION
+    pl.new(pb.outputs["Emission"], pn["Material Output"].inputs["Surface"])
+    pc = pn.new("ShaderNodeTexCoord")
+    ps = pn.new("ShaderNodeSeparateXYZ")
+    pr = pn.new("ShaderNodeMapRange")
+    pr.inputs["From Min"].default_value = -3.0
+    pr.inputs["From Max"].default_value = 4.0
+    pg = pn.new("ShaderNodeValToRGB")
+    pg.color_ramp.elements[0].color = FONDO_ABAJO
+    pg.color_ramp.elements[1].color = FONDO_ARRIBA
+    pl.new(pc.outputs["Object"], ps.inputs["Vector"])
+    pl.new(ps.outputs["Y"], pr.inputs["Value"])
+    pl.new(pr.outputs["Result"], pg.inputs["Fac"])
+    pl.new(pg.outputs["Color"], pb.inputs["Color"])
     pared.data.materials.append(pm)
 
-    # Luces de estudio (área grandes = reflejos largos y suaves)
-    def luz(nombre, loc, energia, tamano, color=(1, 1, 1)):
+    # Luces de estudio: tiras largas para los reflejos alargados y blancos
+    # que recorren el tubo, más un softbox grande que da el volumen.
+    def luz(nombre, loc, energia, ancho, alto, color=(1, 1, 1), mirar=(0, 0, 0)):
         data = bpy.data.lights.new(nombre, "AREA")
+        data.shape = "RECTANGLE"
+        data.size, data.size_y = ancho, alto
         data.energy = energia
-        data.size = tamano
         data.color = color
         o = bpy.data.objects.new(nombre, data)
         o.location = loc
-        d = Vector((0, 0, 0)) - Vector(loc)
+        d = Vector(mirar) - Vector(loc)
         o.rotation_euler = d.to_track_quat("-Z", "Y").to_euler()
         scene.collection.objects.link(o)
+        return o
 
-    luz("key", (-3.0, -4.0, 4.0), 500, 4.0)
-    luz("fill", (4.0, -3.5, 1.0), 200, 5.0, (1.0, 0.85, 0.9))
-    luz("rim", (0.0, 0.5, 4.5), 250, 3.0, (1.0, 0.9, 0.8))
+    luz("softbox", (-2.5, -5.0, 3.5), 700, 4.0, 4.0)
+    luz("tira_arriba", (0.0, -3.0, 3.2), 250, 8.0, 0.35)
+    luz("tira_derecha", (4.5, -2.5, 0.5), 300, 0.4, 5.0, (1.0, 0.9, 0.95))
+    luz("contra", (-1.0, 2.0, 3.0), 400, 3.0, 3.0, (1.0, 0.75, 0.6))
 
     # Cámara
     cam_data = bpy.data.cameras.new("cam")
@@ -194,12 +236,14 @@ def crear_escena(obj):
 
     # Render
     scene.render.engine = "CYCLES"
-    scene.cycles.samples = 128
+    scene.cycles.samples = 256
+    scene.cycles.max_bounces = 16
+    scene.cycles.glossy_bounces = 8
     scene.cycles.use_denoising = True
     scene.render.resolution_x = 1350
     scene.render.resolution_y = 1080
     scene.view_settings.view_transform = "Standard"
-    scene.view_settings.exposure = -1.1
+    scene.view_settings.exposure = EXPOSICION
 
 
 def main():

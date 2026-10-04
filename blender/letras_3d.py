@@ -1,10 +1,10 @@
 """
-"ana" manuscrito en 3D, estilo tubo inflado brillante (rosa + naranja).
+"hola" (y "ana") manuscrito en 3D, estilo tubo inflado brillante (rosa + naranja).
 
 Uso en Blender (4.2 o superior):
   1. Abrí Blender > pestaña "Scripting" > Open > este archivo > Run Script.
   2. O desde terminal:
-       blender --background --python ana_3d.py -- --render render.png --save ana.blend
+       blender --background --python letras_3d.py -- --render hola_3d.png --save hola_3d.blend
 
 Todo el nombre es una sola curva Bezier con bevel redondo: para retocar la forma,
 seleccioná el objeto "ana_trazo", entrá en Edit Mode (Tab) y mové los puntos.
@@ -28,9 +28,40 @@ EXPOSICION = -1.0
 FONDO_ARRIBA = (1.0, 0.86, 0.92, 1.0)
 FONDO_ABAJO = (1.0, 0.70, 0.82, 1.0)
 
+# Trazo continuo de "hola" en (x, y, profundidad); altura de la "x" = 1,
+# los palos de la h y la l llegan a ~2. La profundidad separa los cruces
+# (la subida pasa por delante de la bajada en los bucles).
+TRAZO_HOLA = [
+    # --- h: entrada, bucle alto y joroba
+    (-0.30, 0.10, 0.00), (0.05, 0.50, 0.06), (0.35, 1.05, 0.12), (0.55, 1.55, 0.10),
+    (0.55, 1.95, 0.04), (0.38, 2.10, 0.00), (0.18, 1.98, -0.04), (0.08, 1.60, -0.08),
+    (0.05, 1.00, -0.10), (0.03, 0.00, -0.06),
+    (0.07, 0.45, 0.00), (0.22, 0.82, 0.04), (0.45, 0.98, 0.04), (0.66, 0.85, 0.04),
+    (0.70, 0.50, 0.04), (0.70, 0.15, 0.04), (0.80, 0.00, 0.03), (0.98, 0.05, 0.00),
+    # --- o: sube pegada al lado izquierdo, vuelta y puentecito arriba
+    (1.15, 0.35, -0.08), (1.30, 0.75, -0.12), (1.52, 0.99, -0.06), (1.32, 0.92, 0.04),
+    (1.22, 0.55, 0.10), (1.30, 0.10, 0.08), (1.55, 0.00, 0.04), (1.80, 0.15, 0.02),
+    (1.86, 0.55, 0.00), (1.76, 0.90, 0.00), (1.56, 0.99, 0.00), (1.62, 0.86, 0.06),
+    (1.80, 0.84, 0.08), (2.00, 0.92, 0.08),
+    # --- l: bucle alto
+    (2.35, 1.25, 0.12), (2.50, 1.60, 0.10), (2.50, 1.98, 0.04), (2.33, 2.10, 0.00),
+    (2.14, 1.95, -0.04), (2.06, 1.55, -0.08), (2.04, 1.00, -0.10), (2.04, 0.30, -0.06),
+    (2.12, 0.02, -0.02), (2.32, 0.00, 0.00), (2.50, 0.12, -0.04),
+    # --- a: el conector sube por el borde de arriba (doble) y da la vuelta
+    (2.64, 0.50, -0.14), (2.82, 0.86, -0.14), (3.05, 1.06, -0.12), (3.26, 0.92, -0.08),
+    (3.04, 0.86, 0.04), (2.80, 0.78, 0.08), (2.66, 0.50, 0.10),
+    (2.70, 0.15, 0.08), (2.92, 0.00, 0.06), (3.14, 0.18, 0.04), (3.26, 0.55, 0.00),
+    (3.34, 1.06, -0.04),
+    (3.30, 0.50, 0.04), (3.31, 0.15, 0.04), (3.42, 0.00, 0.03), (3.60, 0.05, 0.02),
+    (3.72, 0.22, 0.00),
+]
+
+TRAZO = TRAZO_HOLA  # cambiar a TRAZO_ANA para volver a "ana"
+
+
 # Trazo continuo de "ana" en (x, y, profundidad), altura de la "x" = 1.
 # La profundidad separa los tramos dobles para que se vean dos tubos juntos.
-TRAZO = [
+TRAZO_ANA = [
     # --- primera "a" (arranca escondida contra el palito)
     (0.70, 0.80, 0.05), (0.50, 0.99, 0.04), (0.15, 0.95, 0.02), (-0.08, 0.66, 0.00),
     (-0.10, 0.30, 0.00), (0.05, 0.04, 0.02), (0.32, 0.00, 0.04), (0.55, 0.20, 0.04),
@@ -169,7 +200,7 @@ def crear_escena(obj):
     scene = bpy.context.scene
 
     # Centrar
-    obj.location = (-1.95, 0, -0.55)
+    obj.location = (-1.85, 0, -1.05)
     obj.rotation_euler = (math.radians(4), 0, math.radians(-6))
 
     # Mundo rosado claro (luz ambiente suave que tiñe las sombras de rosa)
@@ -227,7 +258,7 @@ def crear_escena(obj):
 
     # Cámara
     cam_data = bpy.data.cameras.new("cam")
-    cam_data.lens = 64
+    cam_data.lens = 60
     cam = bpy.data.objects.new("cam", cam_data)
     cam.location = (0.0, -9.0, 0.55)
     cam.rotation_euler = (math.radians(87), 0, 0)

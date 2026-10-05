@@ -15,21 +15,24 @@ Está probado en Blender 4.2.23 y 5.0.1 en modo background. Los nodos usan 5.2.1
 
 ## Animación
 
-- 144 cuadros a 24 fps (6 s), 1080×1080 por defecto.
-- Las letras H, O, L y A caen del cielo una tras otra, cada una 14 cuadros después de la anterior, empezando en el cuadro 10. Rebotan, se aplastan al tocar el piso y se asientan con un leve bamboleo.
-- Mientras caen, la cámara da medio giro alrededor de la palabra. Empieza detrás, con las letras al revés, y termina de frente en el cuadro 112. Del 112 al 144 queda quieta.
-- El estudio es redondo (piso y pared curva alrededor) para que no se vean bordes durante el giro.
-- Los parámetros están arriba de todo en el script: `CUADROS`, `CAIDA_INICIO`, `CAIDA_DESFASAJE`, `ALTURA_CAIDA`, `REBOTE`, `APLASTE`, `CAMARA_DESDE/HASTA`, `CAMARA_FIN`, `CAMARA_DISTANCIA/ALTURA`.
+- 192 cuadros a 24 fps (8 s), 1080×1080 por defecto.
+- Las letras son de vidrio pesado y caen del cielo con un ritmo irregular (H… O.L… A). La A cae desde más alto, como remate.
+  - Mientras caen giran un poco y se enderezan justo al tocar el piso. Rebotan poco, se aplastan apenas y le dan un empujoncito a la letra anterior.
+  - En cada impacto saltan gotitas de vidrio.
+- Mientras caen, la cámara da medio giro alrededor de la palabra, de atrás hacia el frente. Acompaña a la letra que cae y se acerca al final del giro. Tiembla apenas cuando cae la A.
+- Del cuadro 116 al 164, las letras se transforman de vidrio rosa a cristal tornasolado, subiendo desde el piso. Después queda quieta hasta el final.
+- Lleva desenfoque de movimiento y estudio redondo, para que no se vean bordes durante el giro.
+- Parámetros arriba de todo en el script: `SUELTA`, `ALTURA_CAIDA`, `GIRO_CAIDA`, `REBOTE`, `APLASTE`, `EMPUJON`, `GOTITAS`, `CAMARA_*`, `TRANSFORMA_DESDE/HASTA`, `DESENFOQUE_MOVIMIENTO`, `CRISTAL_*`.
 
 ## Comando
 
 ```
-blender -b -P hola_vidrio.py -- --animar --gpu --frames 1 72 --render-anim cuadros/
+blender -b -P hola_vidrio.py -- --animar --gpu --frames 1 96 --render-anim cuadros/
 ```
 
 - `--gpu` elige OptiX en las RTX y, si no hay, CUDA, HIP, Metal o oneAPI. Si no encuentra placa, usa CPU.
 - `--render-anim carpeta/` guarda `hola_0001.png …`. Usa *placeholders* y no sobrescribe, así que si se corta se puede relanzar y sigue donde quedó.
-- `--frames A B` define el tramo de cuadros. Por defecto renderiza 1–144.
+- `--frames A B` define el tramo de cuadros. Por defecto renderiza 1–192.
 - Otras opciones:
   - `--muestras N`: muestras de render, por defecto 256.
   - `--res W H`: resolución.
@@ -41,12 +44,12 @@ blender -b -P hola_vidrio.py -- --animar --gpu --frames 1 72 --render-anim cuadr
 
 | Tramo | Quién | Cuadros |
 |---|---|---|
-| `hola_a` | Juani (RTX 3080) | 1–84 |
-| `hola_b` | Uge | 85–144 |
+| `hola_a` | Juani (RTX 3080) | 1–110 |
+| `hola_b` | Uge | 111–192 |
 
-Si solo renderiza uno, `hola_completo` con 1–144. Los primeros cuadros (1–~20) son más rápidos porque todavía no hay letras en cuadro.
+Si solo renderiza uno, `hola_completo` con 1–192. Los cuadros del cristal (desde el 116) tardan alrededor de 40 % más que los del rosa. Los primeros cuadros (1–~20) son más rápidos porque todavía no hay letras en cuadro.
 
-**Tiempos de referencia:** en la nube, con CPU de 4 núcleos, un cuadro a 1080×1080 y 256 muestras tarda unos 7–9 minutos. En una RTX 3080 con OptiX debería tardar alrededor de 30–60 s por cuadro, unos 1,5–2,5 h por los 144 cuadros. Si hace falta acelerar, `--muestras 128` se ve casi igual con el denoiser.
+**Tiempos de referencia:** en la nube, con CPU de 4 núcleos, un cuadro a 1080×1080 y 256 muestras tarda unos 7–9 minutos. En una RTX 3080 con OptiX debería tardar alrededor de 30–60 s por cuadro, unos 2–3,5 h por los 192 cuadros. Si hace falta acelerar, `--muestras 128` se ve casi igual con el denoiser.
 
 ## Unir el resultado
 

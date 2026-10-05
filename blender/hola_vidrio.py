@@ -25,8 +25,12 @@ UMBRAL_INTERIOR = 3.2    # pared interna (más alto = vidrio más grueso)
 VIDRIO = (1.0, 0.48, 0.63, 1.0)     # rosa del vidrio
 ABSORCION = (1.0, 0.30, 0.50, 1.0)  # color que toma en las partes gruesas
 DENSIDAD = 4.0                      # cuánto se tiñe en lo grueso
-FONDO = (1.0, 0.96, 0.97, 1.0)      # piso/fondo blanco apenas rosado
+FONDO = (0.80, 0.77, 0.78, 1.0)      # piso/fondo: gris claro (se ve casi blanco)
 EXPOSICION = 0.0
+
+# Grosor propio para alguna letra (si no está, usa GROSOR)
+GROSOR_LETRA = {"O": 0.34}
+SOMBRA = (1.0, 0.22, 0.42, 1.0)    # tinte de la luz que atraviesa el vidrio
 
 # Esqueleto de cada letra: lista de trazos; cada trazo es una lista de
 # puntos (x, z). Las letras se tocan apenas entre sí.
@@ -41,15 +45,15 @@ LETRAS = {
         [(0.00, 1.00), (1.00, 1.00)],
     ],
     "O": [
-        elipse(2.15, 1.00, 0.62, 0.70),
+        elipse(2.15, 1.02, 0.58, 0.70),
     ],
     "L": [
         [(3.31, 1.70), (3.31, 0.30), (3.91, 0.30)],
     ],
     "A": [
-        [(4.47, 0.30), (4.81, 1.36), (4.93, 1.66), (5.05, 1.72),
-         (5.17, 1.66), (5.29, 1.36), (5.63, 0.30)],
-        [(4.71, 0.78), (5.39, 0.78)],
+        [(4.40, 0.30), (4.80, 1.42), (4.92, 1.66), (5.05, 1.73),
+         (5.18, 1.66), (5.30, 1.42), (5.70, 0.30)],
+        [(4.60, 0.62), (5.50, 0.62)],
     ],
 }
 
@@ -71,7 +75,7 @@ def muestrear(trazo, paso=0.06):
     return pts
 
 
-def superficie(nombre, trazos, umbral):
+def superficie(nombre, trazos, umbral, grosor=GROSOR):
     """Metaball de los trazos convertido a malla; más umbral = superficie más chica."""
     mb = bpy.data.metaballs.new(nombre)
     mb.resolution = 0.02
@@ -82,7 +86,7 @@ def superficie(nombre, trazos, umbral):
         for x, z in muestrear(trazo):
             el = mb.elements.new(type="BALL")
             el.co = (x, 0.0, z)
-            el.radius = GROSOR * 1.25
+            el.radius = grosor * 1.25
             el.stiffness = 2.0
     bpy.ops.object.select_all(action="DESELECT")
     bpy.context.view_layer.objects.active = obj
@@ -94,10 +98,11 @@ def superficie(nombre, trazos, umbral):
 
 
 def crear_letra(nombre, trazos, mat):
-    exterior = superficie(f"letra_{nombre}", trazos, UMBRAL)
+    g = GROSOR_LETRA.get(nombre, GROSOR)
+    exterior = superficie(f"letra_{nombre}", trazos, UMBRAL, g)
     # Pared interna: la misma forma un poco más chica, con normales hacia
     # adentro. Así la letra es un casco de vidrio hueco, como un globo.
-    interior = superficie(f"interior_{nombre}", trazos, UMBRAL_INTERIOR)
+    interior = superficie(f"interior_{nombre}", trazos, UMBRAL_INTERIOR, g)
     bpy.ops.object.mode_set(mode="EDIT")
     bpy.ops.mesh.select_all(action="SELECT")
     bpy.ops.mesh.flip_normals()
@@ -127,8 +132,18 @@ def crear_vidrio():
     bsdf.inputs["Base Color"].default_value = VIDRIO
     bsdf.inputs["Transmission Weight"].default_value = 1.0
     bsdf.inputs["Roughness"].default_value = 0.0
-    bsdf.inputs["IOR"].default_value = 1.45
-    links.new(bsdf.outputs["BSDF"], out.inputs["Surface"])
+    bsdf.inputs["IOR"].default_value = 1.5
+
+    # Sombra rosada: para los rayos de sombra el vidrio deja pasar luz teñida,
+    # así el piso recibe ese brillo rosa en vez de una sombra gris.
+    camino = nodes.new("ShaderNodeLightPath")
+    trans = nodes.new("ShaderNodeBsdfTransparent")
+    trans.inputs["Color"].default_value = SOMBRA
+    mezcla = nodes.new("ShaderNodeMixShader")
+    links.new(camino.outputs["Is Shadow Ray"], mezcla.inputs["Fac"])
+    links.new(bsdf.outputs["BSDF"], mezcla.inputs[1])
+    links.new(trans.outputs["BSDF"], mezcla.inputs[2])
+    links.new(mezcla.outputs["Shader"], out.inputs["Surface"])
     # Absorción: donde el vidrio es más grueso, más rosa
     vol = nodes.new("ShaderNodeVolumeAbsorption")
     vol.inputs["Color"].default_value = ABSORCION
@@ -174,14 +189,14 @@ def crear_escena(letras):
     scene.world = world
     world.use_nodes = True
     world.node_tree.nodes["Background"].inputs["Color"].default_value = (1, 1, 1, 1)
-    world.node_tree.nodes["Background"].inputs["Strength"].default_value = 0.25
+    world.node_tree.nodes["Background"].inputs["Strength"].default_value = 0.15
 
-    def luz(nombre, loc, energia, ancho, alto, mirar=(2.8, 0, 1)):
+    def luz(nombre, loc, energia, ancho, alto, mirar=(2.8, 0, 1), apertura=70):
         data = bpy.data.lights.new(nombre, "AREA")
         data.shape = "RECTANGLE"
         data.size, data.size_y = ancho, alto
         data.energy = energia
-        data.spread = math.radians(70)
+        data.spread = math.radians(apertura)
         o = bpy.data.objects.new(nombre, data)
         o.location = loc
         d = Vector(mirar) - Vector(loc)
@@ -189,26 +204,40 @@ def crear_escena(letras):
         scene.collection.objects.link(o)
         return o
 
-    # Luz principal arriba-izquierda-atrás: proyecta la sombra rosada hacia adelante
-    key = luz("principal", (-1.0, 4.0, 6.5), 2500, 2.5, 2.5)
-    key.data.cycles.is_caustics_light = True
+    # Luz principal arriba-izquierda-adelante: la sombra rosada cae atrás a la derecha
+    key = luz("principal", (-4.0, -2.5, 4.5), 2200, 3.0, 3.0, apertura=180)
     # Relleno frontal grande y suave
-    luz("relleno", (2.9, -8.0, 3.0), 500, 8.0, 4.0)
+    luz("relleno", (2.8, -8.0, 3.0), 250, 8.0, 4.0)
     # Tiras laterales: bordes brillantes en el vidrio
     luz("tira_izq", (-3.5, -1.5, 2.0), 300, 0.5, 4.0)
     luz("tira_der", (9.5, -1.0, 2.0), 300, 0.5, 4.0)
 
-    # Cáusticas: la luz atraviesa el vidrio y tiñe el piso de rosa
-    piso.cycles.is_caustics_receiver = True
-    for o in letras:
-        o.cycles.is_caustics_caster = True
+    # Paneles oscuros fuera de cuadro: el vidrio los refleja y eso dibuja
+    # los bordes y rebotes internos (truco clásico de foto de producto).
+    negro = bpy.data.materials.new("panel_oscuro")
+    negro.use_nodes = True
+    nb = negro.node_tree.nodes["Principled BSDF"]
+    nb.inputs["Base Color"].default_value = (0.02, 0.015, 0.02, 1.0)
+    nb.inputs["Roughness"].default_value = 1.0
+    for nombre, loc, rot in [
+        ("panel_izq", (-3.0, -4.0, 2.0), (math.pi / 2, 0, math.radians(-50))),
+        ("panel_der", (8.6, -4.0, 2.0), (math.pi / 2, 0, math.radians(50))),
+        ("panel_arriba", (2.8, -2.0, 6.5), (math.radians(20), 0, 0)),
+    ]:
+        bpy.ops.mesh.primitive_plane_add(size=1, location=loc, rotation=rot)
+        pnl = bpy.context.active_object
+        pnl.name = nombre
+        pnl.scale = (2.5, 4.0, 1) if nombre != "panel_arriba" else (5.0, 1.2, 1)
+        pnl.data.materials.append(negro)
+        pnl.visible_camera = False
+        pnl.visible_shadow = False
 
     # Cámara
     cam_data = bpy.data.cameras.new("cam")
     cam_data.lens = 62
     cam = bpy.data.objects.new("cam", cam_data)
-    cam.location = (2.8, -14.0, 2.2)
-    d = Vector((2.8, 0, 1.0)) - cam.location
+    cam.location = (2.8, -14.0, 4.2)
+    d = Vector((2.8, 0.6, 0.8)) - cam.location
     cam.rotation_euler = d.to_track_quat("-Z", "Y").to_euler()
     scene.collection.objects.link(cam)
     scene.camera = cam
@@ -221,8 +250,8 @@ def crear_escena(letras):
     scene.cycles.transmission_bounces = 24
     scene.cycles.glossy_bounces = 12
     scene.cycles.volume_bounces = 4
-    scene.cycles.caustics_reflective = True
-    scene.cycles.caustics_refractive = True
+    scene.cycles.caustics_reflective = False
+    scene.cycles.caustics_refractive = False
     scene.render.resolution_x = 1080
     scene.render.resolution_y = 1080
     scene.view_settings.view_transform = "AgX"

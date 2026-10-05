@@ -27,10 +27,10 @@ ABSORCION = (1.0, 0.30, 0.50, 1.0)  # color que toma en las partes gruesas
 DENSIDAD = 4.0                      # cuánto se tiñe en lo grueso
 FONDO = (0.80, 0.77, 0.78, 1.0)      # piso/fondo: gris claro (se ve casi blanco)
 EXPOSICION = -0.5
-GIRO_PALABRA = 45.0      # 0 = de frente; 45 = la palabra girada en diagonal
+GIRO_PALABRA = 90.0      # 0 = de frente; 45 = diagonal; 90 = de perfil
 
 # Grosor propio para alguna letra (si no está, usa GROSOR)
-GROSOR_LETRA = {"O": 0.44}  # O muy gruesa: agujero chiquito
+GROSOR_LETRA = {}
 SOMBRA = (1.0, 0.22, 0.42, 1.0)    # tinte de la luz que atraviesa el vidrio
 REFLEJO_NARANJA = (1.0, 0.45, 0.08, 1.0)
 REFLEJO_AMARILLO = (1.0, 0.82, 0.15, 1.0)
@@ -50,7 +50,7 @@ LETRAS = {
         [(0.00, 1.00), (1.00, 1.00)],
     ],
     "O": [
-        elipse(2.15, 1.02, 0.50, 0.64),
+        elipse(2.15, 1.02, 0.40, 0.66),  # O angosta y alta: mismo trazo, agujero chiquito
     ],
     "L": [
         [(3.31, 1.70), (3.31, 0.30), (3.91, 0.30)],

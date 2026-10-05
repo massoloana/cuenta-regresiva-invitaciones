@@ -29,7 +29,7 @@ UMBRAL_INTERIOR = 3.2    # pared interna (más alto = vidrio más grueso)
 VIDRIO = (1.0, 0.50, 0.70, 1.0)     # rosa del vidrio
 ABSORCION = (1.0, 0.40, 0.68, 1.0)  # color que toma en las partes gruesas
 DENSIDAD = 2.2                      # cuánto se tiñe en lo grueso
-FONDO = (0.80, 0.77, 0.78, 1.0)      # piso/fondo: gris claro (se ve casi blanco)
+FONDO = (0.86, 0.58, 0.66, 1.0)      # piso/fondo: rosa empolvado (deja ver el cristal)
 EXPOSICION = -0.5
 LUZ_FONDO = 0.55         # brillo propio del estudio (pared y piso)
 GIRO_PALABRA = 0.0       # 0 = de frente; 45 = diagonal; 90 = de perfil
@@ -73,7 +73,8 @@ EMPUJON = 0.05             # cuánto empuja cada letra a la anterior al caer
 GOTITAS = 6                # gotitas de vidrio que saltan en cada impacto
 CAMARA_DESDE = 180.0       # ángulo inicial (180 = detrás de la palabra)
 CAMARA_HASTA = 0.0         # ángulo final (0 = de frente)
-CAMARA_FIN = 112           # cuadro en que la cámara termina el giro
+CAMARA_FRENTE = 116        # cuadro en que la cámara pasa por el frente
+# después del frente sigue girando cada vez más lento (~30° más) durante la transformación
 CAMARA_DISTANCIA = 15.5    # durante el giro
 CAMARA_DISTANCIA_FINAL = 13.2  # se acerca al terminar
 CAMARA_ALTURA = 3.6
@@ -378,14 +379,27 @@ def animar(letras, scene, mat):
                 dz = CAMARA_SIGUE * min(altura, 4.5) * peso
                 dx = CAMARA_SIGUE * (o.matrix_world.translation.x - centro.x) * peso
         objetivos.append(Vector((dx, 0.0, dz)))
+    # Ángulo de la cámara: acelera al principio, pasa por el frente en
+    # CAMARA_FRENTE y sigue girando cada vez más lento mientras las letras se
+    # transforman (velocidad continua, sin frenadas bruscas).
+    def velocidad(f):
+        if f <= CAMARA_FRENTE:
+            return suave((f - 1) / 30) * (1 - 0.6 * suave((f - 60) / (CAMARA_FRENTE - 60)))
+        return 0.4 * (1 - suave((f - CAMARA_FRENTE) / (CUADROS - CAMARA_FRENTE)))
+    acum = [0.0]
+    for f in range(2, CUADROS + 1):
+        acum.append(acum[-1] + velocidad(f))
+    k = (CAMARA_DESDE - CAMARA_HASTA) / acum[CAMARA_FRENTE - 1]
+    angulos = [CAMARA_DESDE - k * c for c in acum]
+    print("cámara: ángulo final %.1f°" % angulos[-1])
+
     # suavizado para que la cámara no dé tirones
     suavizados = []
     for i in range(len(objetivos)):
         ventana = objetivos[max(0, i - 6):i + 7]
         suavizados.append(sum(ventana, Vector()) / len(ventana))
     for f in range(1, CUADROS + 1):
-        u = suave((f - 1) / (CAMARA_FIN - 1))
-        ang = math.radians(CAMARA_DESDE + (CAMARA_HASTA - CAMARA_DESDE) * u)
+        ang = math.radians(angulos[f - 1])
         dist = CAMARA_DISTANCIA + (CAMARA_DISTANCIA_FINAL - CAMARA_DISTANCIA) * suave((f - 80) / 50)
         sacudon = Vector()
         dt = (f - llega_a) / FPS

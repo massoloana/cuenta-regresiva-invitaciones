@@ -15,21 +15,21 @@ Está probado en Blender 4.2.23 y 5.0.1 en modo background. Los nodos usan 5.2.1
 
 ## Animación
 
-- 120 cuadros a 24 fps (5 s), 1080×1080 por defecto.
-- 1–~45: las letras H, O, L y A se inflan una tras otra con rebote. Se estiran más para arriba que para los costados, como un globo.
-- Desde ~40: respiran (±1,5 %) y la palabra flota apenas.
-- 66–102: una barra dorada pasa por delante. Solo se ve en los reflejos del vidrio.
-- Los parámetros están arriba de todo en el script: `CUADROS`, `ENTRADA_DESFASAJE`, `REBOTE`, `RESPIRA`, `FLOTA`, `BRILLO_DESDE/HASTA`, `GIRO_PALABRA`.
+- 144 cuadros a 24 fps (6 s), 1080×1080 por defecto.
+- Las letras H, O, L y A caen del cielo una tras otra, cada una 14 cuadros después de la anterior, empezando en el cuadro 10. Rebotan, se aplastan al tocar el piso y se asientan con un leve bamboleo.
+- Mientras caen, la cámara da medio giro alrededor de la palabra. Empieza detrás, con las letras al revés, y termina de frente en el cuadro 112. Del 112 al 144 queda quieta.
+- El estudio es redondo (piso y pared curva alrededor) para que no se vean bordes durante el giro.
+- Los parámetros están arriba de todo en el script: `CUADROS`, `CAIDA_INICIO`, `CAIDA_DESFASAJE`, `ALTURA_CAIDA`, `REBOTE`, `APLASTE`, `CAMARA_DESDE/HASTA`, `CAMARA_FIN`, `CAMARA_DISTANCIA/ALTURA`.
 
 ## Comando
 
 ```
-blender -b -P hola_vidrio.py -- --animar --gpu --frames 1 60 --render-anim cuadros/
+blender -b -P hola_vidrio.py -- --animar --gpu --frames 1 72 --render-anim cuadros/
 ```
 
 - `--gpu` elige OptiX en las RTX y, si no hay, CUDA, HIP, Metal o oneAPI. Si no encuentra placa, usa CPU.
 - `--render-anim carpeta/` guarda `hola_0001.png …`. Usa *placeholders* y no sobrescribe, así que si se corta se puede relanzar y sigue donde quedó.
-- `--frames A B` define el tramo de cuadros. Por defecto renderiza 1–120.
+- `--frames A B` define el tramo de cuadros. Por defecto renderiza 1–144.
 - Otras opciones:
   - `--muestras N`: muestras de render, por defecto 256.
   - `--res W H`: resolución.
@@ -41,12 +41,12 @@ blender -b -P hola_vidrio.py -- --animar --gpu --frames 1 60 --render-anim cuadr
 
 | Tramo | Quién | Cuadros |
 |---|---|---|
-| `hola_a` | Juani (RTX 3080) | 1–70 |
-| `hola_b` | Uge | 71–120 |
+| `hola_a` | Juani (RTX 3080) | 1–84 |
+| `hola_b` | Uge | 85–144 |
 
-Si solo renderiza uno, `hola_completo` con 1–120.
+Si solo renderiza uno, `hola_completo` con 1–144. Los primeros cuadros (1–~20) son más rápidos porque todavía no hay letras en cuadro.
 
-**Tiempos de referencia:** en la nube, con CPU de 4 núcleos, un cuadro a 1080×1080 y 256 muestras tarda unos 7–9 minutos. En una RTX 3080 con OptiX debería tardar alrededor de 30–60 s por cuadro, unos 1–2 h por 120 cuadros. Si hace falta acelerar, `--muestras 128` se ve casi igual con el denoiser.
+**Tiempos de referencia:** en la nube, con CPU de 4 núcleos, un cuadro a 1080×1080 y 256 muestras tarda unos 7–9 minutos. En una RTX 3080 con OptiX debería tardar alrededor de 30–60 s por cuadro, unos 1,5–2,5 h por los 144 cuadros. Si hace falta acelerar, `--muestras 128` se ve casi igual con el denoiser.
 
 ## Unir el resultado
 
@@ -67,4 +67,4 @@ donde `lista.txt` tiene `file 'hola_a.mp4'` y `file 'hola_b.mp4'`, una por líne
 ## Pendiente o a decidir con Ana
 
 - Formato final: cuadrado (actual) o vertical para historia.
-- Si quiere que la animación haga loop, los últimos cuadros tendrían que volver a la pose del primero de la parte que respira.
+- Si quiere un final más largo con la palabra quieta, se sube `CUADROS`.

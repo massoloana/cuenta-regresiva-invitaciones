@@ -31,7 +31,8 @@ ABSORCION = (1.0, 0.30, 0.50, 1.0)  # color que toma en las partes gruesas
 DENSIDAD = 4.0                      # cuánto se tiñe en lo grueso
 FONDO = (0.80, 0.77, 0.78, 1.0)      # piso/fondo: gris claro (se ve casi blanco)
 EXPOSICION = -0.5
-GIRO_PALABRA = 20.0      # 0 = de frente; 45 = diagonal; 90 = de perfil
+LUZ_FONDO = 0.55         # brillo propio del estudio (pared y piso)
+GIRO_PALABRA = 0.0       # 0 = de frente; 45 = diagonal; 90 = de perfil
 
 # Grosor propio para alguna letra (si no está, usa GROSOR)
 GROSOR_LETRA = {}
@@ -41,14 +42,21 @@ REFLEJO_AMARILLO = (1.0, 0.82, 0.15, 1.0)
 INTENSIDAD_REFLEJOS = 45.0
 PELICULA_NM = 250.0          # espesor de la película iridiscente (nm); 0 = sin efecto
 
-# Animación (a 24 cuadros por segundo)
+# Animación (a 24 cuadros por segundo): las letras caen del cielo mientras la
+# cámara da medio giro alrededor de la palabra y termina de frente.
 FPS = 24
-CUADROS = 120              # 5 segundos
-ENTRADA_DESFASAJE = 6      # cuadros entre que se infla una letra y la siguiente
-REBOTE = 0.12              # amortiguación del rebote (s): más chico = rebota menos
-RESPIRA = 0.015            # cuánto se inflan/desinflan después (1.5 %)
-FLOTA = 0.06               # cuánto sube la palabra al flotar
-BRILLO_DESDE, BRILLO_HASTA = 66, 102   # cuadros en que pasa el brillo dorado
+CUADROS = 144              # 6 segundos
+CAIDA_INICIO = 10          # cuadro en que empieza a caer la H
+CAIDA_DESFASAJE = 14       # cuadros entre una letra y la siguiente
+ALTURA_CAIDA = 9.0         # desde dónde caen (fuera de cuadro)
+GRAVEDAD = 9.8
+REBOTE = 0.30              # cuánto rebota (0 = nada, 1 = pelota perfecta)
+APLASTE = 0.22             # cuánto se aplasta al tocar el piso
+CAMARA_DESDE = 180.0       # ángulo inicial (180 = detrás de la palabra)
+CAMARA_HASTA = 0.0         # ángulo final (0 = de frente)
+CAMARA_FIN = 112           # cuadro en que la cámara termina el giro
+CAMARA_DISTANCIA = 14.0
+CAMARA_ALTURA = 3.6
 
 # Esqueleto de cada letra: lista de trazos; cada trazo es una lista de
 # puntos (x, z). Las letras se tocan apenas entre sí.
@@ -204,76 +212,77 @@ def origen_abajo(obj):
     obj.location += c
 
 
-def resorte(t):
-    """0 -> 1 con un rebote amortiguado (t en segundos desde que arranca)."""
-    if t <= 0:
-        return 0.0
-    w = 2 * math.pi / 0.45
-    return 1 - math.exp(-t / REBOTE) * math.cos(w * t)
+def caida(t):
+    """Altura sobre el piso y aplastamiento de una letra que cae y rebota.
+
+    t en segundos desde que se suelta. Devuelve (altura, aplaste, impactos)
+    donde aplaste > 0 es aplastada y < 0 estirada.
+    """
+    altura, v, tt = ALTURA_CAIDA, 0.0, 0.0
+    impactos = []
+    paso = 1.0 / (FPS * 8)
+    while tt < t:
+        v -= GRAVEDAD * paso
+        altura += v * paso
+        if altura <= 0 and v < 0:
+            impactos.append((tt, -v))
+            altura = 0.0
+            v = -v * REBOTE
+            if v < 0.4:
+                v = 0.0
+        tt += paso
+    if altura <= 0 and v == 0:
+        altura = 0.0
+    aplaste = 0.0
+    for ti, vel in impactos:
+        dt = t - ti
+        fuerza = APLASTE * min(1.0, vel / 12.0)
+        aplaste += fuerza * math.exp(-dt / 0.09) * math.cos(2 * math.pi * dt / 0.28)
+    # mientras cae, se estira un poquito según la velocidad
+    if not impactos or (altura > 0 and v != 0):
+        aplaste -= min(0.08, abs(v) / 150.0)
+    return altura, aplaste
 
 
 def animar(letras, scene):
-    """Entrada: cada letra se infla con rebote. Después respiran, la palabra
-    flota apenas y un brillo dorado la recorre. Todo queda en keyframes."""
+    """Las letras caen del cielo, rebotan y se aplastan al tocar el piso,
+    mientras la cámara da medio giro alrededor de la palabra."""
     scene.render.fps = FPS
     scene.frame_start, scene.frame_end = 1, CUADROS
-    pivote = bpy.data.objects["palabra"]
-    base_z = pivote.location.z
     for i, o in enumerate(letras):
-        inicio = 1 + i * ENTRADA_DESFASAJE
+        suelta = CAIDA_INICIO + i * CAIDA_DESFASAJE
+        z0 = o.location.z
+        giro = (8 if i % 2 else -8)  # leve bamboleo, alternando el lado
         for f in range(1, CUADROS + 1):
-            t = (f - inicio) / FPS
-            r = resorte(t)
-            # se estira un poco más para arriba que para los costados (globo)
-            sxy = max(0.001, 1 + 0.6 * (r - 1))
-            sz = max(0.001, 1 + 1.3 * (r - 1)) if r > 0 else 0.001
-            if r == 0:
-                sxy = 0.001
-            # respiración: arranca suave cuando la letra ya se asentó
-            fase = i * 0.7
-            entra = min(1.0, max(0.0, (t - 0.8) / 0.8))
-            b = 1 + RESPIRA * entra * math.sin(2 * math.pi * t / 2.0 + fase)
-            o.scale = (sxy * b, sxy * b, sz * b)
+            t = (f - suelta) / FPS
+            if t < 0:
+                altura, ap = ALTURA_CAIDA, 0.0
+            else:
+                altura, ap = caida(t)
+            o.location.z = z0 + altura
+            o.scale = (1 + 0.55 * ap, 1 + 0.55 * ap, 1 - ap)
+            amort = 1.0 if t < 0 else math.exp(-max(0.0, t - 1.2) / 0.35)
+            o.rotation_euler.y = math.radians(giro) * amort * math.cos(max(0.0, t - 1.2) * 9)
+            o.keyframe_insert("location", index=2, frame=f)
             o.keyframe_insert("scale", frame=f)
-    # flotar: la palabra entera sube y baja apenas, después de la entrada
-    arranque = 1 + len(letras) * ENTRADA_DESFASAJE + 12
-    for f in range(1, CUADROS + 1):
-        t = max(0, f - arranque) / FPS
-        pivote.location.z = base_z + FLOTA * (1 - math.cos(2 * math.pi * t / 2.5)) / 2
-        pivote.keyframe_insert("location", index=2, frame=f)
-    for o in [pivote] + letras:
-        if o.animation_data and o.animation_data.action:
-            for fc in iter_fcurves(o.animation_data.action):
-                for k in fc.keyframe_points:
-                    k.interpolation = "LINEAR"
+            o.keyframe_insert("rotation_euler", index=1, frame=f)
 
-    # brillo dorado que cruza (solo se ve en los reflejos del vidrio)
-    tm = bpy.data.materials.new("brillo_dorado")
-    tm.use_nodes = True
-    tn = tm.node_tree.nodes
-    tn.remove(tn["Principled BSDF"])
-    em = tn.new("ShaderNodeEmission")
-    em.inputs["Color"].default_value = REFLEJO_AMARILLO
-    em.inputs["Strength"].default_value = 0.0
-    tm.node_tree.links.new(em.outputs["Emission"], tn["Material Output"].inputs["Surface"])
-    cx = pivote.location.x
-    bpy.ops.mesh.primitive_plane_add(size=1, location=(cx - 7, -5.0, 3.5),
-                                     rotation=(math.radians(60), 0, 0))
-    barra = bpy.context.active_object
-    barra.name = "brillo_dorado"
-    barra.scale = (0.6, 4.0, 1)
-    barra.data.materials.append(tm)
-    barra.visible_camera = False
-    barra.visible_shadow = False
-    barra.visible_diffuse = False
-    barra.visible_transmission = False
-    fuerza = em.inputs["Strength"]
-    for f, x, w in [(BRILLO_DESDE - 1, cx - 7, 0.0), (BRILLO_DESDE, cx - 7, 60.0),
-                    (BRILLO_HASTA, cx + 7, 60.0), (BRILLO_HASTA + 1, cx + 7, 0.0)]:
-        barra.location.x = x
-        barra.keyframe_insert("location", index=0, frame=f)
-        fuerza.default_value = w
-        fuerza.keyframe_insert("default_value", frame=f)
+    # Cámara: medio círculo alrededor del centro, con aceleración suave
+    cam = scene.camera
+    centro = bpy.data.objects["centro"].location
+    for f in range(1, CUADROS + 1):
+        u = min(1.0, (f - 1) / (CAMARA_FIN - 1))
+        u = u * u * (3 - 2 * u)  # arranca y frena suave
+        ang = math.radians(CAMARA_DESDE + (CAMARA_HASTA - CAMARA_DESDE) * u)
+        cam.location = centro + Vector((CAMARA_DISTANCIA * math.sin(ang),
+                                        -CAMARA_DISTANCIA * math.cos(ang),
+                                        CAMARA_ALTURA - 0.9))
+        cam.keyframe_insert("location", frame=f)
+
+    for o in letras + [cam]:
+        for fc in iter_fcurves(o.animation_data.action):
+            for k in fc.keyframe_points:
+                k.interpolation = "LINEAR"
 
 
 def iter_fcurves(action):
@@ -344,34 +353,57 @@ def crear_vidrio():
 def crear_escena(letras):
     scene = bpy.context.scene
 
-    # Piso + fondo curvo (ciclorama) para que no se vea el horizonte
-    bpy.ops.mesh.primitive_plane_add(size=1)
-    piso = bpy.context.active_object
-    piso.name = "ciclorama"
-    me = piso.data
+    # Estudio redondo: piso + pared curva alrededor, así la cámara puede girar
+    # sin ver bordes ni horizonte.
     import bmesh
+    xs = [(o.matrix_world @ o.data.vertices[i].co).x for o in letras
+          for i in range(0, len(o.data.vertices), 50)]
+    cx = (min(xs) + max(xs)) / 2
+    me = bpy.data.meshes.new("ciclorama")
+    piso = bpy.data.objects.new("ciclorama", me)
+    scene.collection.objects.link(piso)
     bm = bmesh.new()
-    ancho, prof, alto, radio = 40.0, 8.0, 15.0, 3.0
-    perfil = [(-30.0, 0.0), (prof - radio, 0.0)]
-    for i in range(1, 16):
+    radio_piso, curva, alto, lados = 18.0, 5.0, 30.0, 96
+    perfil = [(0.0, 0.0), (radio_piso * 0.5, 0.0), (radio_piso, 0.0)]
+    for i in range(1, 17):
         a = (math.pi / 2) * i / 16
-        perfil.append((prof - radio + radio * math.sin(a), radio - radio * math.cos(a)))
-    perfil.append((prof, alto))
-    filas = []
-    for y, z in perfil:
-        filas.append([bm.verts.new((x, y, z)) for x in (-ancho / 2, ancho / 2)])
-    for f0, f1 in zip(filas, filas[1:]):
-        bm.faces.new((f0[0], f0[1], f1[1], f1[0]))
+        perfil.append((radio_piso + curva * math.sin(a), curva - curva * math.cos(a)))
+    perfil.append((radio_piso + curva, alto))
+    anillos = []
+    for r, z in perfil[1:]:
+        anillos.append([bm.verts.new((r * math.cos(2 * math.pi * k / lados),
+                                      r * math.sin(2 * math.pi * k / lados), z))
+                        for k in range(lados)])
+    centro_v = bm.verts.new((0.0, 0.0, 0.0))
+    for k in range(lados):
+        bm.faces.new((centro_v, anillos[0][k], anillos[0][(k + 1) % lados]))
+    for a0, a1 in zip(anillos, anillos[1:]):
+        for k in range(lados):
+            k2 = (k + 1) % lados
+            bm.faces.new((a0[k], a1[k], a1[k2], a0[k2]))
+    bm.normal_update()
     bm.to_mesh(me)
     bm.free()
-    bpy.ops.object.shade_smooth()
+    for poly in me.polygons:
+        poly.use_smooth = True
+    bpy.context.view_layer.objects.active = piso
     pm = bpy.data.materials.new("piso")
     pm.use_nodes = True
     pb = pm.node_tree.nodes["Principled BSDF"]
     pb.inputs["Base Color"].default_value = FONDO
     pb.inputs["Roughness"].default_value = 0.6
+    pb.inputs["Specular IOR Level"].default_value = 0.0  # mate: no refleja las tarjetas de color
+    # Un poco de luz propia para que la pared lejana no se vea gris
+    pn, pl = pm.node_tree.nodes, pm.node_tree.links
+    em = pn.new("ShaderNodeEmission")
+    em.inputs["Color"].default_value = FONDO
+    em.inputs["Strength"].default_value = LUZ_FONDO
+    suma = pn.new("ShaderNodeAddShader")
+    pl.new(pb.outputs["BSDF"], suma.inputs[0])
+    pl.new(em.outputs["Emission"], suma.inputs[1])
+    pl.new(suma.outputs["Shader"], pn["Material Output"].inputs["Surface"])
     me.materials.append(pm)
-    piso.location = (2.8, -2.5, 0.0)
+    piso.location = (cx, 0.0, 0.0)
 
     # Mundo blanco suave
     world = bpy.data.worlds.new("mundo")
@@ -390,6 +422,7 @@ def crear_escena(letras):
         o.location = loc
         d = Vector(mirar) - Vector(loc)
         o.rotation_euler = d.to_track_quat("-Z", "Y").to_euler()
+        o.visible_camera = False
         scene.collection.objects.link(o)
         return o
 
@@ -460,9 +493,14 @@ def crear_escena(letras):
     xs = [(o.matrix_world @ o.data.vertices[i].co).x for o in letras
           for i in range(0, len(o.data.vertices), 50)]
     centro = Vector(((min(xs) + max(xs)) / 2, 0.0, 0.9))
-    cam.location = centro + Vector((0.0, -14.0, 3.6))
-    d = centro - cam.location
-    cam.rotation_euler = d.to_track_quat("-Z", "Y").to_euler()
+    cam.location = centro + Vector((0.0, -CAMARA_DISTANCIA, CAMARA_ALTURA - 0.9))
+    objetivo = bpy.data.objects.new("centro", None)
+    objetivo.location = centro
+    scene.collection.objects.link(objetivo)
+    mira = cam.constraints.new("TRACK_TO")
+    mira.target = objetivo
+    mira.track_axis = "TRACK_NEGATIVE_Z"
+    mira.up_axis = "UP_Y"
     scene.collection.objects.link(cam)
     scene.camera = cam
 

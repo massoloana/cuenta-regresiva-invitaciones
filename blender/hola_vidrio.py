@@ -18,8 +18,8 @@ from mathutils import Vector
 # ---------------------------------------------------------------------------
 # Parámetros
 # ---------------------------------------------------------------------------
-GROSOR = 0.30            # radio del trazo inflado (alto de letra = 2)
-APLASTADO = 0.72         # profundidad relativa: <1 = más "almohadón"
+GROSOR = 0.33            # radio del trazo inflado (alto de letra ≈ 2)
+APLASTADO = 0.88         # profundidad relativa: <1 = más "almohadón"
 UMBRAL = 0.6             # superficie exterior del metaball
 UMBRAL_INTERIOR = 3.2    # pared interna (más alto = vidrio más grueso)
 VIDRIO = (1.0, 0.50, 0.70, 1.0)     # rosa del vidrio
@@ -27,9 +27,10 @@ ABSORCION = (1.0, 0.30, 0.50, 1.0)  # color que toma en las partes gruesas
 DENSIDAD = 4.0                      # cuánto se tiñe en lo grueso
 FONDO = (0.80, 0.77, 0.78, 1.0)      # piso/fondo: gris claro (se ve casi blanco)
 EXPOSICION = -0.5
+GIRO_PALABRA = 45.0      # 0 = de frente; 45 = la palabra girada en diagonal
 
 # Grosor propio para alguna letra (si no está, usa GROSOR)
-GROSOR_LETRA = {"O": 0.34}
+GROSOR_LETRA = {"O": 0.44}  # O muy gruesa: agujero chiquito
 SOMBRA = (1.0, 0.22, 0.42, 1.0)    # tinte de la luz que atraviesa el vidrio
 REFLEJO_NARANJA = (1.0, 0.45, 0.08, 1.0)
 REFLEJO_AMARILLO = (1.0, 0.82, 0.15, 1.0)
@@ -49,7 +50,7 @@ LETRAS = {
         [(0.00, 1.00), (1.00, 1.00)],
     ],
     "O": [
-        elipse(2.15, 1.02, 0.58, 0.70),
+        elipse(2.15, 1.02, 0.50, 0.64),
     ],
     "L": [
         [(3.31, 1.70), (3.31, 0.30), (3.91, 0.30)],
@@ -121,6 +122,9 @@ def crear_letra(nombre, trazos, mat):
     obj.scale.y = APLASTADO
     bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
     bpy.ops.object.shade_smooth()
+    # Apoyar la letra en el piso
+    piso_z = min(v.co.z for v in obj.data.vertices)
+    obj.location.z -= piso_z
     obj.data.materials.append(mat)
     obj.select_set(False)
     return obj
@@ -157,6 +161,22 @@ def acomodar(letras, separacion=0.004):
         for o in letras[i:]:
             o.location.x += dx
         bpy.context.view_layer.update()
+
+
+def girar_palabra(letras, grados):
+    """Gira toda la palabra alrededor de su centro (la cámara queda quieta)."""
+    xs = [(o.matrix_world @ v.co).x for o in letras for v in o.data.vertices]
+    centro = Vector(((min(xs) + max(xs)) / 2, 0.0, 0.0))
+    pivote = bpy.data.objects.new("palabra", None)
+    pivote.location = centro
+    bpy.context.collection.objects.link(pivote)
+    bpy.context.view_layer.update()
+    for o in letras:
+        mw = o.matrix_world.copy()
+        o.parent = pivote
+        o.matrix_world = mw
+    pivote.rotation_euler.z = math.radians(-grados)
+    bpy.context.view_layer.update()
 
 
 def crear_vidrio():
@@ -305,10 +325,14 @@ def crear_escena(letras):
 
     # Cámara
     cam_data = bpy.data.cameras.new("cam")
-    cam_data.lens = 62
+    cam_data.lens = 62 if GIRO_PALABRA == 0 else 80
     cam = bpy.data.objects.new("cam", cam_data)
-    cam.location = (2.8, -14.0, 4.2)
-    d = Vector((2.8, 0.6, 0.8)) - cam.location
+    # Centro de la palabra y cámara girada CAMARA_ANGULO grados alrededor de ella
+    xs = [(o.matrix_world @ o.data.vertices[i].co).x for o in letras
+          for i in range(0, len(o.data.vertices), 50)]
+    centro = Vector(((min(xs) + max(xs)) / 2, 0.0, 0.9))
+    cam.location = centro + Vector((0.0, -14.0, 3.6))
+    d = centro - cam.location
     cam.rotation_euler = d.to_track_quat("-Z", "Y").to_euler()
     scene.collection.objects.link(cam)
     scene.camera = cam
@@ -335,6 +359,7 @@ def main():
     mat = crear_vidrio()
     letras = [crear_letra(n, t, mat) for n, t in LETRAS.items()]
     acomodar(letras)
+    girar_palabra(letras, GIRO_PALABRA)
     crear_escena(letras)
 
     if "--save" in argv:

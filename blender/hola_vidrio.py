@@ -6,6 +6,10 @@ Uso en Blender (4.2 o superior):
   2. O desde terminal:
        blender --background --python hola_vidrio.py -- --render hola_vidrio.png --save hola_vidrio.blend
 
+Animación (ver HOLA_PARA_RENDER.md):
+       blender -b -P hola_vidrio.py -- --animar --gpu --frames 1 120 --render-anim cuadros/
+  Opciones: --muestras N   --res ANCHO ALTO   --mp4 salida.mp4   --save archivo.blend
+
 Cada letra es un metaball (bolitas y cápsulas que se fusionan solas), así
 quedan redondas e infladas como globos. Después se convierten a malla.
 Para cambiar la forma, editá el "esqueleto" de cada letra en LETRAS.
@@ -27,7 +31,7 @@ ABSORCION = (1.0, 0.30, 0.50, 1.0)  # color que toma en las partes gruesas
 DENSIDAD = 4.0                      # cuánto se tiñe en lo grueso
 FONDO = (0.80, 0.77, 0.78, 1.0)      # piso/fondo: gris claro (se ve casi blanco)
 EXPOSICION = -0.5
-GIRO_PALABRA = 90.0      # 0 = de frente; 45 = diagonal; 90 = de perfil
+GIRO_PALABRA = 20.0      # 0 = de frente; 45 = diagonal; 90 = de perfil
 
 # Grosor propio para alguna letra (si no está, usa GROSOR)
 GROSOR_LETRA = {}
@@ -36,6 +40,15 @@ REFLEJO_NARANJA = (1.0, 0.45, 0.08, 1.0)
 REFLEJO_AMARILLO = (1.0, 0.82, 0.15, 1.0)
 INTENSIDAD_REFLEJOS = 45.0
 PELICULA_NM = 250.0          # espesor de la película iridiscente (nm); 0 = sin efecto
+
+# Animación (a 24 cuadros por segundo)
+FPS = 24
+CUADROS = 120              # 5 segundos
+ENTRADA_DESFASAJE = 6      # cuadros entre que se infla una letra y la siguiente
+REBOTE = 0.12              # amortiguación del rebote (s): más chico = rebota menos
+RESPIRA = 0.015            # cuánto se inflan/desinflan después (1.5 %)
+FLOTA = 0.06               # cuánto sube la palabra al flotar
+BRILLO_DESDE, BRILLO_HASTA = 66, 102   # cuadros en que pasa el brillo dorado
 
 # Esqueleto de cada letra: lista de trazos; cada trazo es una lista de
 # puntos (x, z). Las letras se tocan apenas entre sí.
@@ -177,6 +190,122 @@ def girar_palabra(letras, grados):
         o.matrix_world = mw
     pivote.rotation_euler.z = math.radians(-grados)
     bpy.context.view_layer.update()
+
+
+def origen_abajo(obj):
+    """Pone el origen de la letra en el centro de su base: se infla desde el piso."""
+    vs = obj.data.vertices
+    cx = (min(v.co.x for v in vs) + max(v.co.x for v in vs)) / 2
+    cy = (min(v.co.y for v in vs) + max(v.co.y for v in vs)) / 2
+    cz = min(v.co.z for v in vs)
+    c = Vector((cx, cy, cz))
+    for v in vs:
+        v.co -= c
+    obj.location += c
+
+
+def resorte(t):
+    """0 -> 1 con un rebote amortiguado (t en segundos desde que arranca)."""
+    if t <= 0:
+        return 0.0
+    w = 2 * math.pi / 0.45
+    return 1 - math.exp(-t / REBOTE) * math.cos(w * t)
+
+
+def animar(letras, scene):
+    """Entrada: cada letra se infla con rebote. Después respiran, la palabra
+    flota apenas y un brillo dorado la recorre. Todo queda en keyframes."""
+    scene.render.fps = FPS
+    scene.frame_start, scene.frame_end = 1, CUADROS
+    pivote = bpy.data.objects["palabra"]
+    base_z = pivote.location.z
+    for i, o in enumerate(letras):
+        inicio = 1 + i * ENTRADA_DESFASAJE
+        for f in range(1, CUADROS + 1):
+            t = (f - inicio) / FPS
+            r = resorte(t)
+            # se estira un poco más para arriba que para los costados (globo)
+            sxy = max(0.001, 1 + 0.6 * (r - 1))
+            sz = max(0.001, 1 + 1.3 * (r - 1)) if r > 0 else 0.001
+            if r == 0:
+                sxy = 0.001
+            # respiración: arranca suave cuando la letra ya se asentó
+            fase = i * 0.7
+            entra = min(1.0, max(0.0, (t - 0.8) / 0.8))
+            b = 1 + RESPIRA * entra * math.sin(2 * math.pi * t / 2.0 + fase)
+            o.scale = (sxy * b, sxy * b, sz * b)
+            o.keyframe_insert("scale", frame=f)
+    # flotar: la palabra entera sube y baja apenas, después de la entrada
+    arranque = 1 + len(letras) * ENTRADA_DESFASAJE + 12
+    for f in range(1, CUADROS + 1):
+        t = max(0, f - arranque) / FPS
+        pivote.location.z = base_z + FLOTA * (1 - math.cos(2 * math.pi * t / 2.5)) / 2
+        pivote.keyframe_insert("location", index=2, frame=f)
+    for o in [pivote] + letras:
+        if o.animation_data and o.animation_data.action:
+            for fc in iter_fcurves(o.animation_data.action):
+                for k in fc.keyframe_points:
+                    k.interpolation = "LINEAR"
+
+    # brillo dorado que cruza (solo se ve en los reflejos del vidrio)
+    tm = bpy.data.materials.new("brillo_dorado")
+    tm.use_nodes = True
+    tn = tm.node_tree.nodes
+    tn.remove(tn["Principled BSDF"])
+    em = tn.new("ShaderNodeEmission")
+    em.inputs["Color"].default_value = REFLEJO_AMARILLO
+    em.inputs["Strength"].default_value = 0.0
+    tm.node_tree.links.new(em.outputs["Emission"], tn["Material Output"].inputs["Surface"])
+    cx = pivote.location.x
+    bpy.ops.mesh.primitive_plane_add(size=1, location=(cx - 7, -5.0, 3.5),
+                                     rotation=(math.radians(60), 0, 0))
+    barra = bpy.context.active_object
+    barra.name = "brillo_dorado"
+    barra.scale = (0.6, 4.0, 1)
+    barra.data.materials.append(tm)
+    barra.visible_camera = False
+    barra.visible_shadow = False
+    barra.visible_diffuse = False
+    barra.visible_transmission = False
+    fuerza = em.inputs["Strength"]
+    for f, x, w in [(BRILLO_DESDE - 1, cx - 7, 0.0), (BRILLO_DESDE, cx - 7, 60.0),
+                    (BRILLO_HASTA, cx + 7, 60.0), (BRILLO_HASTA + 1, cx + 7, 0.0)]:
+        barra.location.x = x
+        barra.keyframe_insert("location", index=0, frame=f)
+        fuerza.default_value = w
+        fuerza.keyframe_insert("default_value", frame=f)
+
+
+def iter_fcurves(action):
+    """F-curves de una acción (Blender 4.x y 5.x guardan las curvas distinto)."""
+    if hasattr(action, "fcurves") and len(getattr(action, "fcurves", [])):
+        yield from action.fcurves
+        return
+    for capa in getattr(action, "layers", []):
+        for tira in capa.strips:
+            for bolsa in tira.channelbags:
+                yield from bolsa.fcurves
+
+
+def usar_gpu(scene):
+    """Usa la placa de video si hay (OptiX en RTX, si no CUDA/HIP/Metal/oneAPI)."""
+    try:
+        prefs = bpy.context.preferences.addons["cycles"].preferences
+    except KeyError:
+        return None
+    for tipo in ("OPTIX", "CUDA", "HIP", "METAL", "ONEAPI"):
+        try:
+            prefs.compute_device_type = tipo
+        except TypeError:
+            continue
+        prefs.get_devices()
+        gpus = [d for d in prefs.devices if d.type == tipo]
+        if gpus:
+            for d in prefs.devices:
+                d.use = d.type == tipo
+            scene.cycles.device = "GPU"
+            return tipo
+    return None
 
 
 def crear_vidrio():
@@ -359,14 +488,54 @@ def main():
     mat = crear_vidrio()
     letras = [crear_letra(n, t, mat) for n, t in LETRAS.items()]
     acomodar(letras)
+    for o in letras:
+        origen_abajo(o)
+    bpy.context.view_layer.update()
     girar_palabra(letras, GIRO_PALABRA)
     crear_escena(letras)
+    scene = bpy.context.scene
+
+    def arg(nombre, n=1):
+        i = argv.index(nombre)
+        return argv[i + 1:i + 1 + n]
+
+    if "--animar" in argv:
+        animar(letras, scene)
+    if "--gpu" in argv:
+        print("GPU:", usar_gpu(scene) or "no hay, uso CPU")
+    if "--muestras" in argv:
+        scene.cycles.samples = int(arg("--muestras")[0])
+    if "--res" in argv:
+        w, h = arg("--res", 2)
+        scene.render.resolution_x, scene.render.resolution_y = int(w), int(h)
 
     if "--save" in argv:
-        bpy.ops.wm.save_as_mainfile(filepath=argv[argv.index("--save") + 1])
+        bpy.ops.wm.save_as_mainfile(filepath=arg("--save")[0])
     if "--render" in argv:
-        bpy.context.scene.render.filepath = argv[argv.index("--render") + 1]
+        scene.render.filepath = arg("--render")[0]
         bpy.ops.render.render(write_still=True)
+    if "--render-anim" in argv or "--mp4" in argv:
+        if "--frames" in argv:
+            a, b = arg("--frames", 2)
+            scene.frame_start, scene.frame_end = int(a), int(b)
+        scene.render.use_persistent_data = True
+        if "--mp4" in argv:
+            if hasattr(scene.render.image_settings, "media_type"):  # Blender 5
+                scene.render.image_settings.media_type = "VIDEO"
+            scene.render.image_settings.file_format = "FFMPEG"
+            scene.render.ffmpeg.format = "MPEG4"
+            scene.render.ffmpeg.codec = "H264"
+            scene.render.ffmpeg.constant_rate_factor = "HIGH"
+            scene.render.filepath = arg("--mp4")[0]
+        else:
+            # cuadros PNG numerados: si se corta, se retoma sin perder lo hecho
+            scene.render.image_settings.file_format = "PNG"
+            scene.render.use_overwrite = False
+            scene.render.use_placeholder = True
+            carpeta = arg("--render-anim")[0]
+            scene.render.filepath = carpeta.rstrip("/\\") + "/hola_####"
+        bpy.ops.render.render(animation=True)
 
 
-main()
+if __name__ == "__main__":
+    main()

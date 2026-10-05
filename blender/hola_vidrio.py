@@ -27,8 +27,8 @@ APLASTADO = 0.88         # profundidad relativa: <1 = más "almohadón"
 UMBRAL = 0.6             # superficie exterior del metaball
 UMBRAL_INTERIOR = 3.2    # pared interna (más alto = vidrio más grueso)
 VIDRIO = (1.0, 0.50, 0.70, 1.0)     # rosa del vidrio
-ABSORCION = (1.0, 0.30, 0.50, 1.0)  # color que toma en las partes gruesas
-DENSIDAD = 4.0                      # cuánto se tiñe en lo grueso
+ABSORCION = (1.0, 0.40, 0.68, 1.0)  # color que toma en las partes gruesas
+DENSIDAD = 2.2                      # cuánto se tiñe en lo grueso
 FONDO = (0.80, 0.77, 0.78, 1.0)      # piso/fondo: gris claro (se ve casi blanco)
 EXPOSICION = -0.5
 LUZ_FONDO = 0.55         # brillo propio del estudio (pared y piso)
@@ -56,21 +56,31 @@ SOMBRA_CRISTAL = [                           # sombras de colores pastel
 ]
 CORTE_INICIAL = -1.0       # altura del corte: -1 = todo rosa, 3 = todo cristal
 
-# Animación (a 24 cuadros por segundo): las letras caen del cielo mientras la
-# cámara da medio giro alrededor de la palabra y termina de frente.
+# Animación (a 24 cuadros por segundo): las letras de vidrio caen del cielo
+# mientras la cámara da medio giro alrededor de la palabra; al final se
+# transforman de rosa a cristal tornasolado, subiendo desde el piso.
 FPS = 24
-CUADROS = 144              # 6 segundos
-CAIDA_INICIO = 10          # cuadro en que empieza a caer la H
-CAIDA_DESFASAJE = 14       # cuadros entre una letra y la siguiente
-ALTURA_CAIDA = 9.0         # desde dónde caen (fuera de cuadro)
+CUADROS = 192              # 8 segundos
+# cuadro en que se suelta cada letra (ritmo irregular: H… O.L… A)
+SUELTA = {"H": 10, "O": 28, "L": 37, "A": 56}
+ALTURA_CAIDA = {"H": 9.0, "O": 9.0, "L": 9.0, "A": 12.0}   # la A cae con más fuerza
+GIRO_CAIDA = {             # giro inicial (x, y, z en grados): se endereza al caer
+    "H": (18, -22, 10), "O": (-15, 25, -12), "L": (20, 18, 8), "A": (-22, -28, -15)}
 GRAVEDAD = 9.8
-REBOTE = 0.30              # cuánto rebota (0 = nada, 1 = pelota perfecta)
-APLASTE = 0.22             # cuánto se aplasta al tocar el piso
+REBOTE = 0.12              # vidrio pesado: rebota poco
+APLASTE = 0.09             # y se aplasta apenas
+EMPUJON = 0.05             # cuánto empuja cada letra a la anterior al caer
+GOTITAS = 6                # gotitas de vidrio que saltan en cada impacto
 CAMARA_DESDE = 180.0       # ángulo inicial (180 = detrás de la palabra)
 CAMARA_HASTA = 0.0         # ángulo final (0 = de frente)
 CAMARA_FIN = 112           # cuadro en que la cámara termina el giro
-CAMARA_DISTANCIA = 14.0
+CAMARA_DISTANCIA = 15.5    # durante el giro
+CAMARA_DISTANCIA_FINAL = 13.2  # se acerca al terminar
 CAMARA_ALTURA = 3.6
+CAMARA_SIGUE = 0.35        # cuánto acompaña la cámara a la letra que cae
+TRANSFORMA_DESDE = 116     # la transformación a cristal sube desde el piso
+TRANSFORMA_HASTA = 164
+DESENFOQUE_MOVIMIENTO = 0.5   # 0 = sin desenfoque de movimiento
 
 # Esqueleto de cada letra: lista de trazos; cada trazo es una lista de
 # puntos (x, z). Las letras se tocan apenas entre sí.
@@ -227,13 +237,18 @@ def origen_abajo(obj):
     obj.location += c
 
 
-def caida(t):
-    """Altura sobre el piso y aplastamiento de una letra que cae y rebota.
+def suave(u):
+    u = min(1.0, max(0.0, u))
+    return u * u * (3 - 2 * u)
 
-    t en segundos desde que se suelta. Devuelve (altura, aplaste, impactos)
-    donde aplaste > 0 es aplastada y < 0 estirada.
+
+def caida(t, h0):
+    """Altura, aplaste e impactos de una letra que cae desde h0 y rebota.
+
+    t en segundos desde que se suelta. aplaste > 0 = aplastada, < 0 = estirada.
+    impactos = [(segundo, velocidad)].
     """
-    altura, v, tt = ALTURA_CAIDA, 0.0, 0.0
+    altura, v, tt = h0, 0.0, 0.0
     impactos = []
     paso = 1.0 / (FPS * 8)
     while tt < t:
@@ -243,58 +258,153 @@ def caida(t):
             impactos.append((tt, -v))
             altura = 0.0
             v = -v * REBOTE
-            if v < 0.4:
+            if v < 0.6:
                 v = 0.0
         tt += paso
-    if altura <= 0 and v == 0:
-        altura = 0.0
+    altura = max(0.0, altura)
     aplaste = 0.0
     for ti, vel in impactos:
         dt = t - ti
-        fuerza = APLASTE * min(1.0, vel / 12.0)
-        aplaste += fuerza * math.exp(-dt / 0.09) * math.cos(2 * math.pi * dt / 0.28)
-    # mientras cae, se estira un poquito según la velocidad
-    if not impactos or (altura > 0 and v != 0):
-        aplaste -= min(0.08, abs(v) / 150.0)
-    return altura, aplaste
+        fuerza = APLASTE * min(1.3, vel / 12.0)
+        aplaste += fuerza * math.exp(-dt / 0.07) * math.cos(2 * math.pi * dt / 0.22)
+    if not impactos:  # mientras cae, se estira un poquito según la velocidad
+        aplaste -= min(0.05, abs(v) / 250.0)
+    return altura, aplaste, impactos
 
 
-def animar(letras, scene):
-    """Las letras caen del cielo, rebotan y se aplastan al tocar el piso,
-    mientras la cámara da medio giro alrededor de la palabra."""
+def animar(letras, scene, mat):
+    """Caída de las letras, cámara en semicírculo y transformación a cristal."""
+    import random
+    azar = random.Random(7)
     scene.render.fps = FPS
     scene.frame_start, scene.frame_end = 1, CUADROS
-    for i, o in enumerate(letras):
-        suelta = CAIDA_INICIO + i * CAIDA_DESFASAJE
-        z0 = o.location.z
-        giro = (8 if i % 2 else -8)  # leve bamboleo, alternando el lado
+    if DESENFOQUE_MOVIMIENTO:
+        scene.render.use_motion_blur = True
+        scene.render.motion_blur_shutter = DESENFOQUE_MOVIMIENTO
+
+    nombres = [o.name.replace("letra_", "") for o in letras]
+    datos = {}
+    for n in nombres:
+        h0 = ALTURA_CAIDA[n]
+        _, _, imp = caida(10.0, h0)
+        datos[n] = {"h0": h0, "suelta": SUELTA[n], "impactos": imp,
+                    "llega": SUELTA[n] + imp[0][0] * FPS}
+
+    # empujones: cuando cae una letra, la anterior se corre un poquito y vuelve
+    def empujon(i, t_abs):
+        dx = 0.0
+        if i + 1 < len(nombres):
+            sig = datos[nombres[i + 1]]
+            dt = t_abs - sig["llega"] / FPS
+            if dt > 0:
+                fuerza = EMPUJON * min(1.4, sig["impactos"][0][1] / 13.0)
+                dx = -fuerza * math.exp(-dt / 0.12) * math.sin(2 * math.pi * dt / 0.32)
+        return dx
+
+    for i, (o, n) in enumerate(zip(letras, nombres)):
+        d = datos[n]
+        x0, z0 = o.location.x, o.location.z
+        rx, ry, rz = (math.radians(a) for a in GIRO_CAIDA[n])
+        t_vuelo = d["impactos"][0][0]
         for f in range(1, CUADROS + 1):
-            t = (f - suelta) / FPS
+            t = (f - d["suelta"]) / FPS
             if t < 0:
-                altura, ap = ALTURA_CAIDA, 0.0
+                altura, ap = d["h0"], 0.0
             else:
-                altura, ap = caida(t)
+                altura, ap, _ = caida(t, d["h0"])
+            # gira mientras cae y se endereza justo al tocar el piso;
+            # después, un bamboleo chiquito que se apaga
+            if t < t_vuelo:
+                k = (1 - suave(max(0.0, t) / t_vuelo)) if t >= 0 else 1.0
+                bam = 0.0
+            else:
+                k = 0.0
+                dt = t - t_vuelo
+                bam = math.radians(3) * math.exp(-dt / 0.2) * math.sin(2 * math.pi * dt / 0.35)
+            o.rotation_euler = (rx * k, ry * k + bam, rz * k)
             o.location.z = z0 + altura
-            o.scale = (1 + 0.55 * ap, 1 + 0.55 * ap, 1 - ap)
-            amort = 1.0 if t < 0 else math.exp(-max(0.0, t - 1.2) / 0.35)
-            o.rotation_euler.y = math.radians(giro) * amort * math.cos(max(0.0, t - 1.2) * 9)
-            o.keyframe_insert("location", index=2, frame=f)
+            o.location.x = x0 + empujon(i, f / FPS)
+            o.scale = (1 + 0.5 * ap, 1 + 0.5 * ap, 1 - ap)
+            o.keyframe_insert("location", frame=f)
+            o.keyframe_insert("rotation_euler", frame=f)
             o.keyframe_insert("scale", frame=f)
-            o.keyframe_insert("rotation_euler", index=1, frame=f)
 
-    # Cámara: medio círculo alrededor del centro, con aceleración suave
+        # gotitas de vidrio que saltan al tocar el piso
+        base = o.matrix_world.translation.copy()
+        base.z = 0.0
+        ancho = o.dimensions.x * 0.45
+        t_imp = d["llega"] / FPS
+        vel_imp = d["impactos"][0][1]
+        for g in range(GOTITAS):
+            bpy.ops.mesh.primitive_uv_sphere_add(radius=azar.uniform(0.035, 0.08),
+                                                 segments=16, ring_count=8)
+            gota = bpy.context.active_object
+            gota.name = f"gotita_{n}_{g}"
+            bpy.ops.object.shade_smooth()
+            gota.data.materials.append(mat)
+            ang = azar.uniform(0, 2 * math.pi)
+            vh = azar.uniform(0.8, 2.0) * vel_imp / 12.0
+            vz = azar.uniform(1.8, 3.2) * vel_imp / 12.0
+            p0 = base + Vector((azar.uniform(-ancho, ancho), azar.uniform(-0.2, 0.2), 0.08))
+            vida = azar.uniform(0.45, 0.7)
+            for f in range(1, CUADROS + 1):
+                t = f / FPS - t_imp
+                if t < 0 or t > vida + 0.1:
+                    gota.scale = (0.0, 0.0, 0.0)
+                    gota.location = p0
+                else:
+                    z = max(0.04, vz * t - 0.5 * GRAVEDAD * t * t + 0.08)
+                    gota.location = p0 + Vector((vh * math.cos(ang) * t, vh * math.sin(ang) * t, z - 0.08))
+                    s = 1.0 - suave((t - vida * 0.6) / (vida * 0.4))
+                    gota.scale = (s, s, s)
+                gota.keyframe_insert("location", frame=f)
+                gota.keyframe_insert("scale", frame=f)
+
+    # Cámara: medio círculo alrededor del centro, acompañando la caída
     cam = scene.camera
-    centro = bpy.data.objects["centro"].location
+    centro = bpy.data.objects["centro"].location.copy()
+    mira = bpy.data.objects["mira"]
+    llega_a = datos[nombres[-1]]["llega"]
+    objetivos = []
     for f in range(1, CUADROS + 1):
-        u = min(1.0, (f - 1) / (CAMARA_FIN - 1))
-        u = u * u * (3 - 2 * u)  # arranca y frena suave
+        # la letra que está cayendo (la más reciente en el aire)
+        dx = dz = 0.0
+        for o, n in zip(letras, nombres):
+            d = datos[n]
+            t = (f - d["suelta"]) / FPS
+            if 0 <= t < d["impactos"][0][0]:
+                altura, _, _ = caida(t, d["h0"])
+                peso = suave(t / 0.35)
+                dz = CAMARA_SIGUE * min(altura, 4.5) * peso
+                dx = CAMARA_SIGUE * (o.matrix_world.translation.x - centro.x) * peso
+        objetivos.append(Vector((dx, 0.0, dz)))
+    # suavizado para que la cámara no dé tirones
+    suavizados = []
+    for i in range(len(objetivos)):
+        ventana = objetivos[max(0, i - 6):i + 7]
+        suavizados.append(sum(ventana, Vector()) / len(ventana))
+    for f in range(1, CUADROS + 1):
+        u = suave((f - 1) / (CAMARA_FIN - 1))
         ang = math.radians(CAMARA_DESDE + (CAMARA_HASTA - CAMARA_DESDE) * u)
-        cam.location = centro + Vector((CAMARA_DISTANCIA * math.sin(ang),
-                                        -CAMARA_DISTANCIA * math.cos(ang),
-                                        CAMARA_ALTURA - 0.9))
+        dist = CAMARA_DISTANCIA + (CAMARA_DISTANCIA_FINAL - CAMARA_DISTANCIA) * suave((f - 80) / 50)
+        sacudon = Vector()
+        dt = (f - llega_a) / FPS
+        if 0 <= dt < 0.3:  # la A cae fuerte: la cámara tiembla apenas
+            sacudon = Vector((0, 0, 0.05 * math.exp(-dt / 0.08) * math.sin(dt * 60)))
+        cam.location = centro + Vector((dist * math.sin(ang), -dist * math.cos(ang),
+                                        CAMARA_ALTURA - 0.9)) + sacudon
         cam.keyframe_insert("location", frame=f)
+        mira.location = centro + suavizados[f - 1]
+        mira.keyframe_insert("location", frame=f)
 
-    for o in letras + [cam]:
+    # Transformación de rosa a cristal: el corte sube desde abajo del piso
+    for m in (mat, bpy.data.materials["vidrio_interior"]):
+        valor = m.node_tree.nodes["corte"].outputs[0]
+        for f, v in ((TRANSFORMA_DESDE, -1.0), (TRANSFORMA_HASTA, 3.0)):
+            valor.default_value = v
+            valor.keyframe_insert("default_value", frame=f)
+
+    for o in letras + [cam, mira]:
         for fc in iter_fcurves(o.animation_data.action):
             for k in fc.keyframe_points:
                 k.interpolation = "LINEAR"
@@ -392,9 +502,10 @@ def crear_vidrio():
     bsdf.inputs["Transmission Weight"].default_value = 1.0
     bsdf.inputs["Roughness"].default_value = 0.0
     bsdf.inputs["IOR"].default_value = 1.5
-    bsdf.inputs["Thin Film IOR"].default_value = 1.8  # más alto = colores más intensos
     links.new(mezclar(VIDRIO, CRISTAL, "RGBA"), bsdf.inputs["Base Color"])
     links.new(mezclar(PELICULA_NM, espesor.outputs["Result"]), bsdf.inputs["Thin Film Thickness"])
+    # índice de la película: suave en el rosa, alto (colores intensos) en el cristal
+    links.new(mezclar(1.33, 1.8), bsdf.inputs["Thin Film IOR"])
 
     # --- sombra: rosa antes, sombras de colores pastel en el cristal
     paleta = nodes.new("ShaderNodeValToRGB")
@@ -444,6 +555,9 @@ def material_interior(mat):
     links.new(superficie_actual, mezcla.inputs[1])
     links.new(trans.outputs["BSDF"], mezcla.inputs[2])
     links.new(mezcla.outputs["Shader"], out.inputs["Surface"])
+    # sin volumen propio: si no, Blender tiñe también el aire de adentro
+    for l in list(out.inputs["Volume"].links):
+        links.remove(l)
     return m
 
 
@@ -596,8 +710,11 @@ def crear_escena(letras):
     objetivo = bpy.data.objects.new("centro", None)
     objetivo.location = centro
     scene.collection.objects.link(objetivo)
+    punto = bpy.data.objects.new("mira", None)  # adonde mira la cámara
+    punto.location = centro
+    scene.collection.objects.link(punto)
     mira = cam.constraints.new("TRACK_TO")
-    mira.target = objetivo
+    mira.target = punto
     mira.track_axis = "TRACK_NEGATIVE_Z"
     mira.up_axis = "UP_Y"
     scene.collection.objects.link(cam)
@@ -637,7 +754,7 @@ def main():
         return argv[i + 1:i + 1 + n]
 
     if "--animar" in argv:
-        animar(letras, scene)
+        animar(letras, scene, mat)
     if "--gpu" in argv:
         print("GPU:", usar_gpu(scene) or "no hay, uso CPU")
     if "--muestras" in argv:

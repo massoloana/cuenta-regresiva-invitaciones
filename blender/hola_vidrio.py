@@ -454,7 +454,7 @@ def crear_escena(letras):
 
     # Cámara
     cam_data = bpy.data.cameras.new("cam")
-    cam_data.lens = 62 if GIRO_PALABRA == 0 else 80
+    cam_data.lens = 62 if GIRO_PALABRA < 30 else 80
     cam = bpy.data.objects.new("cam", cam_data)
     # Centro de la palabra y cámara girada CAMARA_ANGULO grados alrededor de ella
     xs = [(o.matrix_world @ o.data.vertices[i].co).x for o in letras

@@ -22,15 +22,19 @@ GROSOR = 0.30            # radio del trazo inflado (alto de letra = 2)
 APLASTADO = 0.72         # profundidad relativa: <1 = más "almohadón"
 UMBRAL = 0.6             # superficie exterior del metaball
 UMBRAL_INTERIOR = 3.2    # pared interna (más alto = vidrio más grueso)
-VIDRIO = (1.0, 0.48, 0.63, 1.0)     # rosa del vidrio
+VIDRIO = (1.0, 0.50, 0.70, 1.0)     # rosa del vidrio
 ABSORCION = (1.0, 0.30, 0.50, 1.0)  # color que toma en las partes gruesas
 DENSIDAD = 4.0                      # cuánto se tiñe en lo grueso
 FONDO = (0.80, 0.77, 0.78, 1.0)      # piso/fondo: gris claro (se ve casi blanco)
-EXPOSICION = 0.0
+EXPOSICION = -0.5
 
 # Grosor propio para alguna letra (si no está, usa GROSOR)
 GROSOR_LETRA = {"O": 0.34}
 SOMBRA = (1.0, 0.22, 0.42, 1.0)    # tinte de la luz que atraviesa el vidrio
+REFLEJO_NARANJA = (1.0, 0.45, 0.08, 1.0)
+REFLEJO_AMARILLO = (1.0, 0.82, 0.15, 1.0)
+INTENSIDAD_REFLEJOS = 45.0
+PELICULA_NM = 250.0          # espesor de la película iridiscente (nm); 0 = sin efecto
 
 # Esqueleto de cada letra: lista de trazos; cada trazo es una lista de
 # puntos (x, z). Las letras se tocan apenas entre sí.
@@ -122,6 +126,39 @@ def crear_letra(nombre, trazos, mat):
     return obj
 
 
+def acomodar(letras, separacion=0.004):
+    """Junta las letras hasta que apenas se toquen, sin meterse una en otra.
+
+    Si los vidrios se superponen, la refracción en la zona de contacto se ve
+    deformada; así quedan pegadas pero cada una conserva su forma.
+    """
+    from mathutils.bvhtree import BVHTree
+
+    def arbol(obj, dx=0.0):
+        mw = obj.matrix_world
+        verts = [mw @ v.co + Vector((dx, 0, 0)) for v in obj.data.vertices]
+        return BVHTree.FromPolygons(verts, [p.vertices for p in obj.data.polygons])
+
+    def se_tocan(a, b, dx):
+        return bool(arbol(a).overlap(arbol(b, dx)))
+
+    for i in range(1, len(letras)):
+        prev, act = letras[i - 1], letras[i]
+        lejos, cerca = 1.0, -0.5
+        if se_tocan(prev, act, lejos):
+            continue
+        for _ in range(18):  # búsqueda binaria del desplazamiento justo
+            medio = (lejos + cerca) / 2
+            if se_tocan(prev, act, medio):
+                cerca = medio
+            else:
+                lejos = medio
+        dx = lejos + separacion
+        for o in letras[i:]:
+            o.location.x += dx
+        bpy.context.view_layer.update()
+
+
 def crear_vidrio():
     mat = bpy.data.materials.new("vidrio_rosa")
     mat.use_nodes = True
@@ -133,6 +170,9 @@ def crear_vidrio():
     bsdf.inputs["Transmission Weight"].default_value = 1.0
     bsdf.inputs["Roughness"].default_value = 0.0
     bsdf.inputs["IOR"].default_value = 1.5
+    # Película fina iridiscente (como burbuja de jabón): da reflejos de color
+    bsdf.inputs["Thin Film Thickness"].default_value = PELICULA_NM
+    bsdf.inputs["Thin Film IOR"].default_value = 1.33
 
     # Sombra rosada: para los rayos de sombra el vidrio deja pasar luz teñida,
     # así el piso recibe ese brillo rosa en vez de una sombra gris.
@@ -209,8 +249,39 @@ def crear_escena(letras):
     # Relleno frontal grande y suave
     luz("relleno", (2.8, -8.0, 3.0), 250, 8.0, 4.0)
     # Tiras laterales: bordes brillantes en el vidrio
-    luz("tira_izq", (-3.5, -1.5, 2.0), 300, 0.5, 4.0)
-    luz("tira_der", (9.5, -1.0, 2.0), 300, 0.5, 4.0)
+    izq = luz("tira_izq", (-3.5, -1.5, 2.0), 900, 0.6, 4.0)
+    izq.data.color = REFLEJO_NARANJA[:3]
+    izq.visible_diffuse = False  # tiñe los reflejos, no el piso
+    izq.visible_transmission = False
+    der = luz("tira_der", (9.5, -1.0, 2.0), 900, 0.6, 4.0)
+    der.data.color = REFLEJO_AMARILLO[:3]
+    der.visible_diffuse = False
+    der.visible_transmission = False
+
+    # Tarjetas de color fuera de cuadro: el vidrio las refleja como manchas
+    # de luz naranja y amarilla (no se ven ni hacen sombra).
+    for nombre, color, loc, rot, escala in [
+        ("tarjeta_naranja", REFLEJO_NARANJA, (-0.5, -9.0, 2.2), (math.pi / 2, 0, math.radians(-15)), (1.0, 3.0, 1)),
+        ("tarjeta_amarilla", REFLEJO_AMARILLO, (6.2, -9.0, 2.6), (math.pi / 2, 0, math.radians(15)), (1.0, 3.0, 1)),
+        ("tarjeta_durazno", REFLEJO_AMARILLO, (2.8, -4.0, 5.5), (math.radians(35), 0, 0), (6.0, 0.6, 1)),
+    ]:
+        tm = bpy.data.materials.new(nombre)
+        tm.use_nodes = True
+        tn = tm.node_tree.nodes
+        tn.remove(tn["Principled BSDF"])
+        em = tn.new("ShaderNodeEmission")
+        em.inputs["Color"].default_value = color
+        em.inputs["Strength"].default_value = INTENSIDAD_REFLEJOS
+        tm.node_tree.links.new(em.outputs["Emission"], tn["Material Output"].inputs["Surface"])
+        bpy.ops.mesh.primitive_plane_add(size=1, location=loc, rotation=rot)
+        t = bpy.context.active_object
+        t.name = nombre
+        t.scale = escala
+        t.data.materials.append(tm)
+        t.visible_camera = False
+        t.visible_shadow = False
+        t.visible_diffuse = False  # solo aparece en los reflejos del vidrio
+        t.visible_transmission = False
 
     # Paneles oscuros fuera de cuadro: el vidrio los refleja y eso dibuja
     # los bordes y rebotes internos (truco clásico de foto de producto).
@@ -254,7 +325,7 @@ def crear_escena(letras):
     scene.cycles.caustics_refractive = False
     scene.render.resolution_x = 1080
     scene.render.resolution_y = 1080
-    scene.view_settings.view_transform = "AgX"
+    scene.view_settings.view_transform = "Khronos PBR Neutral"  # conserva el color de los brillos
     scene.view_settings.exposure = EXPOSICION
 
 
@@ -263,6 +334,7 @@ def main():
     limpiar_escena()
     mat = crear_vidrio()
     letras = [crear_letra(n, t, mat) for n, t in LETRAS.items()]
+    acomodar(letras)
     crear_escena(letras)
 
     if "--save" in argv:

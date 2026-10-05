@@ -38,9 +38,23 @@ GIRO_PALABRA = 0.0       # 0 = de frente; 45 = diagonal; 90 = de perfil
 GROSOR_LETRA = {}
 SOMBRA = (1.0, 0.22, 0.42, 1.0)    # tinte de la luz que atraviesa el vidrio
 REFLEJO_NARANJA = (1.0, 0.45, 0.08, 1.0)
+REFLEJO_MAGENTA = (1.0, 0.20, 0.75, 1.0)
 REFLEJO_AMARILLO = (1.0, 0.82, 0.15, 1.0)
 INTENSIDAD_REFLEJOS = 45.0
 PELICULA_NM = 250.0          # espesor de la película iridiscente (nm); 0 = sin efecto
+
+# Transformación a cristal tornasolado (como las A cursivas de referencia)
+CRISTAL = (0.97, 0.97, 1.0, 1.0)             # casi incoloro
+CRISTAL_ABSORCION = (1.0, 0.85, 0.95, 1.0)   # apenas rosado en lo grueso
+CRISTAL_DENSIDAD = 0.04
+CRISTAL_PELICULA = (320.0, 760.0)            # nm: rosa, dorado y celeste
+SOMBRA_CRISTAL = [                           # sombras de colores pastel
+    (0.0, (1.0, 0.75, 0.95, 1.0)),
+    (0.4, (1.0, 0.95, 0.70, 1.0)),
+    (0.7, (0.75, 0.95, 1.0, 1.0)),
+    (1.0, (1.0, 0.80, 0.90, 1.0)),
+]
+CORTE_INICIAL = -1.0       # altura del corte: -1 = todo rosa, 3 = todo cristal
 
 # Animación (a 24 cuadros por segundo): las letras caen del cielo mientras la
 # cámara da medio giro alrededor de la palabra y termina de frente.
@@ -71,7 +85,7 @@ LETRAS = {
         [(0.00, 1.00), (1.00, 1.00)],
     ],
     "O": [
-        elipse(2.15, 1.02, 0.40, 0.66),  # O angosta y alta: mismo trazo, agujero chiquito
+        elipse(2.15, 1.02, 0.50, 0.66),  # mismo trazo que el resto; agujero chico
     ],
     "L": [
         [(3.31, 1.70), (3.31, 0.30), (3.91, 0.30)],
@@ -129,6 +143,8 @@ def crear_letra(nombre, trazos, mat):
     # Pared interna: la misma forma un poco más chica, con normales hacia
     # adentro. Así la letra es un casco de vidrio hueco, como un globo.
     interior = superficie(f"interior_{nombre}", trazos, UMBRAL_INTERIOR, g)
+    exterior.data.materials.append(mat)
+    interior.data.materials.append(material_interior(mat))
     bpy.ops.object.mode_set(mode="EDIT")
     bpy.ops.mesh.select_all(action="SELECT")
     bpy.ops.mesh.flip_normals()
@@ -146,7 +162,6 @@ def crear_letra(nombre, trazos, mat):
     # Apoyar la letra en el piso
     piso_z = min(v.co.z for v in obj.data.vertices)
     obj.location.z -= piso_z
-    obj.data.materials.append(mat)
     obj.select_set(False)
     return obj
 
@@ -318,36 +333,118 @@ def usar_gpu(scene):
 
 
 def crear_vidrio():
+    """Vidrio que puede pasar de rosa a cristal tornasolado.
+
+    El valor "corte" (altura en metros) separa las dos versiones: por debajo
+    del corte la letra ya es cristal, por encima sigue rosa. Animando el corte
+    de abajo hacia arriba, la transformación sube desde el piso.
+    """
     mat = bpy.data.materials.new("vidrio_rosa")
     mat.use_nodes = True
     nodes, links = mat.node_tree.nodes, mat.node_tree.links
     nodes.clear()
     out = nodes.new("ShaderNodeOutputMaterial")
+
+    # --- factor de transformación: 0 = rosa, 1 = cristal
+    geo = nodes.new("ShaderNodeNewGeometry")
+    sep = nodes.new("ShaderNodeSeparateXYZ")
+    links.new(geo.outputs["Position"], sep.inputs["Vector"])
+    corte = nodes.new("ShaderNodeValue")
+    corte.name = "corte"
+    corte.outputs[0].default_value = CORTE_INICIAL
+    fac = nodes.new("ShaderNodeMapRange")  # suave en una franja de 0.5 m
+    links.new(sep.outputs["Z"], fac.inputs["Value"])
+    resta = nodes.new("ShaderNodeMath")
+    resta.operation = "SUBTRACT"
+    links.new(corte.outputs[0], resta.inputs[0])
+    resta.inputs[1].default_value = 0.5
+    links.new(resta.outputs[0], fac.inputs["From Max"])
+    links.new(corte.outputs[0], fac.inputs["From Min"])
+    fac.clamp = True
+    fac.name = "factor_cristal"
+    f = fac.outputs["Result"]
+
+    def mezclar(a, b, tipo="FLOAT"):
+        m = nodes.new("ShaderNodeMix")
+        m.data_type = tipo
+        links.new(f, m.inputs["Factor"])
+        entrada_a = m.inputs[6] if tipo == "RGBA" else m.inputs[2]
+        entrada_b = m.inputs[7] if tipo == "RGBA" else m.inputs[3]
+        for entrada, v in ((entrada_a, a), (entrada_b, b)):
+            if hasattr(v, "links"):
+                links.new(v, entrada)
+            else:
+                entrada.default_value = v
+        return m.outputs[2] if tipo == "RGBA" else m.outputs[0]
+
+    # --- arcoíris: película más gruesa y variable en el cristal
+    coords = nodes.new("ShaderNodeTexCoord")
+    ruido = nodes.new("ShaderNodeTexNoise")
+    ruido.inputs["Scale"].default_value = 1.6
+    ruido.inputs["Detail"].default_value = 2.0
+    links.new(coords.outputs["Object"], ruido.inputs["Vector"])
+    espesor = nodes.new("ShaderNodeMapRange")
+    espesor.inputs["To Min"].default_value = CRISTAL_PELICULA[0]
+    espesor.inputs["To Max"].default_value = CRISTAL_PELICULA[1]
+    links.new(ruido.outputs["Fac"], espesor.inputs["Value"])
+
     bsdf = nodes.new("ShaderNodeBsdfPrincipled")
-    bsdf.inputs["Base Color"].default_value = VIDRIO
     bsdf.inputs["Transmission Weight"].default_value = 1.0
     bsdf.inputs["Roughness"].default_value = 0.0
     bsdf.inputs["IOR"].default_value = 1.5
-    # Película fina iridiscente (como burbuja de jabón): da reflejos de color
-    bsdf.inputs["Thin Film Thickness"].default_value = PELICULA_NM
-    bsdf.inputs["Thin Film IOR"].default_value = 1.33
+    bsdf.inputs["Thin Film IOR"].default_value = 1.8  # más alto = colores más intensos
+    links.new(mezclar(VIDRIO, CRISTAL, "RGBA"), bsdf.inputs["Base Color"])
+    links.new(mezclar(PELICULA_NM, espesor.outputs["Result"]), bsdf.inputs["Thin Film Thickness"])
 
-    # Sombra rosada: para los rayos de sombra el vidrio deja pasar luz teñida,
-    # así el piso recibe ese brillo rosa en vez de una sombra gris.
+    # --- sombra: rosa antes, sombras de colores pastel en el cristal
+    paleta = nodes.new("ShaderNodeValToRGB")
+    cr = paleta.color_ramp
+    for i, (pos, col) in enumerate(SOMBRA_CRISTAL):
+        el = cr.elements[i] if i < 2 else cr.elements.new(pos)
+        el.position, el.color = pos, col
+    links.new(ruido.outputs["Fac"], paleta.inputs["Fac"])
     camino = nodes.new("ShaderNodeLightPath")
     trans = nodes.new("ShaderNodeBsdfTransparent")
-    trans.inputs["Color"].default_value = SOMBRA
+    links.new(mezclar(SOMBRA, paleta.outputs["Color"], "RGBA"), trans.inputs["Color"])
     mezcla = nodes.new("ShaderNodeMixShader")
     links.new(camino.outputs["Is Shadow Ray"], mezcla.inputs["Fac"])
     links.new(bsdf.outputs["BSDF"], mezcla.inputs[1])
     links.new(trans.outputs["BSDF"], mezcla.inputs[2])
     links.new(mezcla.outputs["Shader"], out.inputs["Surface"])
-    # Absorción: donde el vidrio es más grueso, más rosa
+
+    # --- absorción: rosa en lo grueso antes; casi nada en el cristal.
+    # En el volumen la posición no sirve para el corte, así que el tinte
+    # interno se apaga apenas arranca el corte (de -1 a 0.3 m), así la
+    # letra no se oscurece cuando por dentro pasa de hueca a maciza.
+    fac_vol = nodes.new("ShaderNodeMapRange")
+    fac_vol.inputs["From Min"].default_value = -1.0
+    fac_vol.inputs["From Max"].default_value = 0.3
+    links.new(corte.outputs[0], fac_vol.inputs["Value"])
+    f = fac_vol.outputs["Result"]
     vol = nodes.new("ShaderNodeVolumeAbsorption")
-    vol.inputs["Color"].default_value = ABSORCION
-    vol.inputs["Density"].default_value = DENSIDAD
+    links.new(mezclar(ABSORCION, CRISTAL_ABSORCION, "RGBA"), vol.inputs["Color"])
+    links.new(mezclar(DENSIDAD, CRISTAL_DENSIDAD), vol.inputs["Density"])
     links.new(vol.outputs["Volume"], out.inputs["Volume"])
     return mat
+
+
+def material_interior(mat):
+    """Pared interna: igual al vidrio mientras es rosa (letra hueca), y se
+    vuelve invisible al pasar a cristal (la letra se ve maciza)."""
+    if "vidrio_interior" in bpy.data.materials:
+        return bpy.data.materials["vidrio_interior"]
+    m = mat.copy()
+    m.name = "vidrio_interior"
+    nodes, links = m.node_tree.nodes, m.node_tree.links
+    out = next(n for n in nodes if n.type == "OUTPUT_MATERIAL")
+    superficie_actual = out.inputs["Surface"].links[0].from_socket
+    trans = nodes.new("ShaderNodeBsdfTransparent")
+    mezcla = nodes.new("ShaderNodeMixShader")
+    links.new(nodes["factor_cristal"].outputs["Result"], mezcla.inputs["Fac"])
+    links.new(superficie_actual, mezcla.inputs[1])
+    links.new(trans.outputs["BSDF"], mezcla.inputs[2])
+    links.new(mezcla.outputs["Shader"], out.inputs["Surface"])
+    return m
 
 
 def crear_escena(letras):
@@ -446,6 +543,8 @@ def crear_escena(letras):
         ("tarjeta_naranja", REFLEJO_NARANJA, (-0.5, -9.0, 2.2), (math.pi / 2, 0, math.radians(-15)), (1.0, 3.0, 1)),
         ("tarjeta_amarilla", REFLEJO_AMARILLO, (6.2, -9.0, 2.6), (math.pi / 2, 0, math.radians(15)), (1.0, 3.0, 1)),
         ("tarjeta_durazno", REFLEJO_AMARILLO, (2.8, -4.0, 5.5), (math.radians(35), 0, 0), (6.0, 0.6, 1)),
+        ("tarjeta_magenta", REFLEJO_MAGENTA, (-3.5, -7.0, 3.0), (math.radians(80), 0, math.radians(-35)), (1.2, 3.0, 1)),
+        ("tarjeta_magenta_2", REFLEJO_MAGENTA, (9.0, -6.0, 1.2), (math.pi / 2, 0, math.radians(45)), (1.0, 2.5, 1)),
     ]:
         tm = bpy.data.materials.new(nombre)
         tm.use_nodes = True

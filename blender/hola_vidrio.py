@@ -31,7 +31,8 @@ ABSORCION = (1.0, 0.40, 0.68, 1.0)  # color que toma en las partes gruesas
 DENSIDAD = 2.2                      # cuánto se tiñe en lo grueso
 FONDO = (0.86, 0.58, 0.66, 1.0)      # piso/fondo: rosa empolvado (deja ver el cristal)
 EXPOSICION = -0.5
-LUZ_FONDO = 0.55         # brillo propio del estudio (pared y piso)
+LUZ_FONDO = 0.30         # brillo propio del estudio (pared lejana)
+SOL_SOMBRAS = 9.0        # fuerza de la luz que marca las sombras
 GIRO_PALABRA = 0.0       # 0 = de frente; 45 = diagonal; 90 = de perfil
 
 # Grosor propio para alguna letra (si no está, usa GROSOR)
@@ -48,11 +49,11 @@ CRISTAL = (0.97, 0.97, 1.0, 1.0)             # casi incoloro
 CRISTAL_ABSORCION = (1.0, 0.85, 0.95, 1.0)   # apenas rosado en lo grueso
 CRISTAL_DENSIDAD = 0.04
 CRISTAL_PELICULA = (320.0, 760.0)            # nm: rosa, dorado y celeste
-SOMBRA_CRISTAL = [                           # sombras de colores pastel
-    (0.0, (1.0, 0.75, 0.95, 1.0)),
-    (0.4, (1.0, 0.95, 0.70, 1.0)),
-    (0.7, (0.75, 0.95, 1.0, 1.0)),
-    (1.0, (1.0, 0.80, 0.90, 1.0)),
+SOMBRA_CRISTAL = [          # sombra del cristal: semitransparente y teñida
+    (0.0, (0.55, 0.36, 0.55, 1.0)),          # (1 = sin sombra, 0 = sombra negra)
+    (0.4, (0.58, 0.50, 0.32, 1.0)),
+    (0.7, (0.36, 0.50, 0.58, 1.0)),
+    (1.0, (0.58, 0.38, 0.48, 1.0)),
 ]
 CORTE_INICIAL = -1.0       # altura del corte: -1 = todo rosa, 3 = todo cristal
 
@@ -622,20 +623,32 @@ def crear_escena(letras):
     pn, pl = pm.node_tree.nodes, pm.node_tree.links
     em = pn.new("ShaderNodeEmission")
     em.inputs["Color"].default_value = FONDO
-    em.inputs["Strength"].default_value = LUZ_FONDO
+    # solo lejos de las letras (no donde caen las sombras)
+    coords = pn.new("ShaderNodeTexCoord")
+    largo = pn.new("ShaderNodeVectorMath")
+    largo.operation = "LENGTH"
+    pl.new(coords.outputs["Object"], largo.inputs[0])
+    lejos = pn.new("ShaderNodeMapRange")
+    lejos.inputs["From Min"].default_value = 6.0
+    lejos.inputs["From Max"].default_value = 16.0
+    lejos.inputs["To Max"].default_value = LUZ_FONDO
+    lejos.interpolation_type = "SMOOTHSTEP"
+    pl.new(largo.outputs["Value"], lejos.inputs["Value"])
+    pl.new(lejos.outputs["Result"], em.inputs["Strength"])
     suma = pn.new("ShaderNodeAddShader")
     pl.new(pb.outputs["BSDF"], suma.inputs[0])
     pl.new(em.outputs["Emission"], suma.inputs[1])
     pl.new(suma.outputs["Shader"], pn["Material Output"].inputs["Surface"])
     me.materials.append(pm)
     piso.location = (cx, 0.0, 0.0)
+    piso.visible_shadow = False  # la pared alta no tapa las luces (si no, no hay sombras en el piso)
 
     # Mundo blanco suave
     world = bpy.data.worlds.new("mundo")
     scene.world = world
     world.use_nodes = True
     world.node_tree.nodes["Background"].inputs["Color"].default_value = (1, 1, 1, 1)
-    world.node_tree.nodes["Background"].inputs["Strength"].default_value = 0.15
+    world.node_tree.nodes["Background"].inputs["Strength"].default_value = 0.06
 
     def luz(nombre, loc, energia, ancho, alto, mirar=(2.8, 0, 1), apertura=70):
         data = bpy.data.lights.new(nombre, "AREA")
@@ -652,9 +665,17 @@ def crear_escena(letras):
         return o
 
     # Luz principal arriba-izquierda-adelante: la sombra rosada cae atrás a la derecha
-    key = luz("principal", (-4.0, -2.5, 4.5), 2200, 3.0, 3.0, apertura=180)
+    key = luz("principal", (-4.0, -2.5, 4.5), 1200, 3.0, 3.0, apertura=180)
+    # Sol suave: da la sombra definida de las letras en el piso (rosa o de colores)
+    sol = bpy.data.lights.new("sol_sombras", "SUN")
+    sol.energy = SOL_SOMBRAS
+    sol.angle = math.radians(6)
+    so = bpy.data.objects.new("sol_sombras", sol)
+    # viene de atrás a la izquierda: la sombra cae hacia adelante y a la derecha
+    so.rotation_euler = Vector((0.55, -0.75, -0.75)).to_track_quat("-Z", "Y").to_euler()
+    scene.collection.objects.link(so)
     # Relleno frontal grande y suave
-    luz("relleno", (2.8, -8.0, 3.0), 250, 8.0, 4.0)
+    luz("relleno", (2.8, -8.0, 3.0), 120, 8.0, 4.0)
     # Tiras laterales: bordes brillantes en el vidrio
     izq = luz("tira_izq", (-3.5, -1.5, 2.0), 900, 0.6, 4.0)
     izq.data.color = REFLEJO_NARANJA[:3]

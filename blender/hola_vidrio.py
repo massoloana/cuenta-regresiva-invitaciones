@@ -61,7 +61,7 @@ CORTE_INICIAL = -1.0       # altura del corte: -1 = todo rosa, 3 = todo cristal
 # mientras la cámara da medio giro alrededor de la palabra; al final se
 # transforman de rosa a cristal tornasolado, subiendo desde el piso.
 FPS = 24
-CUADROS = 192              # 8 segundos
+CUADROS = 300              # 12,5 segundos
 # cuadro en que se suelta cada letra (ritmo irregular: H… O.L… A)
 SUELTA = {"H": 10, "O": 28, "L": 37, "A": 56}
 ALTURA_CAIDA = {"H": 9.0, "O": 9.0, "L": 9.0, "A": 12.0}   # la A cae con más fuerza
@@ -82,6 +82,11 @@ CAMARA_ALTURA = 3.6
 CAMARA_SIGUE = 0.35        # cuánto acompaña la cámara a la letra que cae
 TRANSFORMA_DESDE = 116     # la transformación a cristal sube desde el piso
 TRANSFORMA_HASTA = 164
+CIERRE_DESDE = 160         # la cámara se acerca y recorre el cristal de cerca
+CIERRE_ANGULO = -40.0      # ángulo final de la cámara (0 = de frente)
+CIERRE_DISTANCIA = 8.5     # distancia en el primer plano final
+CIERRE_ALTURA = 1.9        # altura de la cámara en el primer plano (desde el piso)
+CIERRE_RECORRE = 0.9       # cuánto se desplaza la mirada de la H hacia la A
 DESENFOQUE_MOVIMIENTO = 0.5   # 0 = sin desenfoque de movimiento
 
 # Esqueleto de cada letra: lista de trazos; cada trazo es una lista de
@@ -386,7 +391,14 @@ def animar(letras, scene, mat):
     def velocidad(f):
         if f <= CAMARA_FRENTE:
             return suave((f - 1) / 30) * (1 - 0.6 * suave((f - 60) / (CAMARA_FRENTE - 60)))
-        return 0.4 * (1 - suave((f - CAMARA_FRENTE) / (CUADROS - CAMARA_FRENTE)))
+        # sigue girando y va frenando de a poco hasta CIERRE_ANGULO
+        return 0.4 * (1 - suave((f - CAMARA_FRENTE) / largo_frenada))
+    previo = [0.0]
+    for f in range(2, CAMARA_FRENTE + 1):
+        previo.append(previo[-1] + velocidad(f) if f <= CAMARA_FRENTE else 0)
+    k0 = (CAMARA_DESDE - CAMARA_HASTA) / previo[-1]
+    # largo de la frenada para terminar justo en CIERRE_ANGULO (área = 0.4·L/2)
+    largo_frenada = max(10.0, 2 * (CAMARA_HASTA - CIERRE_ANGULO) / (k0 * 0.4))
     acum = [0.0]
     for f in range(2, CUADROS + 1):
         acum.append(acum[-1] + velocidad(f))
@@ -402,14 +414,19 @@ def animar(letras, scene, mat):
     for f in range(1, CUADROS + 1):
         ang = math.radians(angulos[f - 1])
         dist = CAMARA_DISTANCIA + (CAMARA_DISTANCIA_FINAL - CAMARA_DISTANCIA) * suave((f - 80) / 50)
+        # primer plano final: se acerca, baja y la mirada recorre la palabra
+        c = suave((f - CIERRE_DESDE) / 70)
+        dist += (CIERRE_DISTANCIA - dist) * c
+        alto = (CAMARA_ALTURA - 0.9) + (CIERRE_ALTURA - 0.9 - (CAMARA_ALTURA - 0.9)) * c
+        recorre = CIERRE_RECORRE * (2 * suave((f - CIERRE_DESDE) / (CUADROS - CIERRE_DESDE)) - 1) * c
         sacudon = Vector()
         dt = (f - llega_a) / FPS
         if 0 <= dt < 0.3:  # la A cae fuerte: la cámara tiembla apenas
             sacudon = Vector((0, 0, 0.05 * math.exp(-dt / 0.08) * math.sin(dt * 60)))
-        cam.location = centro + Vector((dist * math.sin(ang), -dist * math.cos(ang),
-                                        CAMARA_ALTURA - 0.9)) + sacudon
+        cam.location = centro + Vector((dist * math.sin(ang) + recorre * 0.6,
+                                        -dist * math.cos(ang), alto)) + sacudon
         cam.keyframe_insert("location", frame=f)
-        mira.location = centro + suavizados[f - 1]
+        mira.location = centro + suavizados[f - 1] + Vector((recorre, 0.0, -0.15 * c))
         mira.keyframe_insert("location", frame=f)
 
     # Transformación de rosa a cristal: el corte sube desde abajo del piso

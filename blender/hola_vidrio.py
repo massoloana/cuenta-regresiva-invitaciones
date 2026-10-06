@@ -48,7 +48,21 @@ PELICULA_NM = 250.0          # espesor de la película iridiscente (nm); 0 = sin
 CRISTAL = (0.97, 0.97, 1.0, 1.0)             # casi incoloro
 CRISTAL_ABSORCION = (1.0, 0.85, 0.95, 1.0)   # apenas rosado en lo grueso
 CRISTAL_DENSIDAD = 0.04
-CRISTAL_PELICULA = (320.0, 760.0)            # nm: rosa, dorado y celeste
+CRISTAL_PELICULA = (300.0, 480.0)            # nm: magenta y dorado (sin verdes)
+CRISTAL_BORDES = [                           # color según el ángulo (0 = de frente, 1 = borde)
+    (0.00, (0.97, 0.97, 1.00, 1.0)),          # centro transparente
+    (0.22, (1.00, 0.80, 0.96, 1.0)),
+    (0.45, (1.00, 0.25, 0.80, 1.0)),          # magenta
+    (0.68, (1.00, 0.68, 0.12, 1.0)),          # dorado
+    (0.86, (0.85, 0.40, 1.00, 1.0)),          # lila
+    (1.00, (0.45, 0.80, 1.00, 1.0)),          # celeste en el filo
+]
+CRISTAL_DISPERSION = 0.4   # cuánto se separan los colores al atravesar (0 = nada)
+ARCOIRIS = [                # aro de luz alrededor: solo se ve reflejado en el cristal
+    (1.00, 0.20, 0.75), (1.00, 0.70, 0.10), (0.80, 0.35, 1.00),
+    (0.35, 0.80, 1.00), (1.00, 0.45, 0.85), (1.00, 0.85, 0.30),
+]
+ARCOIRIS_FUERZA = 6.0
 SOMBRA_CRISTAL = [          # sombra del cristal: semitransparente y teñida
     (0.0, (0.55, 0.36, 0.55, 1.0)),          # (1 = sin sombra, 0 = sombra negra)
     (0.4, (0.58, 0.50, 0.32, 1.0)),
@@ -429,6 +443,13 @@ def animar(letras, scene, mat):
         mira.location = centro + suavizados[f - 1] + Vector((recorre, 0.0, -0.15 * c))
         mira.keyframe_insert("location", frame=f)
 
+    # Aro arcoíris: se enciende con la transformación (solo en reflejos)
+    aro = crear_aro_arcoiris(centro)
+    fuerza = aro.data.materials[0].node_tree.nodes["Emission"].inputs["Strength"]
+    for f, v in ((TRANSFORMA_DESDE, 0.0), (TRANSFORMA_HASTA, ARCOIRIS_FUERZA)):
+        fuerza.default_value = v
+        fuerza.keyframe_insert("default_value", frame=f)
+
     # Transformación de rosa a cristal: el corte sube desde abajo del piso
     for m in (mat, bpy.data.materials["vidrio_interior"]):
         valor = m.node_tree.nodes["corte"].outputs[0]
@@ -440,6 +461,55 @@ def animar(letras, scene, mat):
         for fc in iter_fcurves(o.animation_data.action):
             for k in fc.keyframe_points:
                 k.interpolation = "LINEAR"
+
+
+def crear_aro_arcoiris(centro, radio=6.5, z0=1.2, z1=4.5, lados=72):
+    """Banda de luz de colores alrededor de la palabra. No la ve la cámara ni
+    ilumina el piso: solo aparece en reflejos y refracciones del vidrio."""
+    import bmesh
+    me = bpy.data.meshes.new("aro_arcoiris")
+    obj = bpy.data.objects.new("aro_arcoiris", me)
+    bpy.context.scene.collection.objects.link(obj)
+    bm = bmesh.new()
+    capa = bm.loops.layers.uv.new()
+    abajo = [bm.verts.new((radio * math.cos(2 * math.pi * k / lados),
+                           radio * math.sin(2 * math.pi * k / lados), z0)) for k in range(lados)]
+    arriba = [bm.verts.new((v.co.x * 1.15, v.co.y * 1.15, z1)) for v in abajo]
+    for k in range(lados):
+        k2 = (k + 1) % lados
+        cara = bm.faces.new((abajo[k], abajo[k2], arriba[k2], arriba[k]))
+        for loop, u in zip(cara.loops, (k, k + 1, k + 1, k)):
+            loop[capa].uv = (u / lados, 0)
+    bm.to_mesh(me)
+    bm.free()
+    obj.location = (centro.x, centro.y, 0)
+    m = bpy.data.materials.new("arcoiris")
+    m.use_nodes = True
+    n, l = m.node_tree.nodes, m.node_tree.links
+    n.remove(n["Principled BSDF"])
+    em = n.new("ShaderNodeEmission")
+    em.name = "Emission"
+    em.inputs["Strength"].default_value = 0.0
+    uv = n.new("ShaderNodeUVMap")
+    sep = n.new("ShaderNodeSeparateXYZ")
+    l.new(uv.outputs["UV"], sep.inputs["Vector"])
+    rampa = n.new("ShaderNodeValToRGB")
+    cr = rampa.color_ramp
+    cr.interpolation = "EASE"
+    pasos = ARCOIRIS + [ARCOIRIS[0]]
+    for i, c in enumerate(pasos):
+        el = cr.elements[i] if i < 2 else cr.elements.new(i / (len(pasos) - 1))
+        el.position = i / (len(pasos) - 1)
+        el.color = (*c, 1.0)
+    l.new(sep.outputs["X"], rampa.inputs["Fac"])
+    l.new(rampa.outputs["Color"], em.inputs["Color"])
+    l.new(em.outputs["Emission"], n["Material Output"].inputs["Surface"])
+    me.materials.append(m)
+    obj.visible_camera = False
+    obj.visible_diffuse = False
+    obj.visible_shadow = False
+    obj.visible_volume_scatter = False
+    return obj
 
 
 def iter_fcurves(action):
@@ -534,7 +604,15 @@ def crear_vidrio():
     bsdf.inputs["Transmission Weight"].default_value = 1.0
     bsdf.inputs["Roughness"].default_value = 0.0
     bsdf.inputs["IOR"].default_value = 1.5
-    links.new(mezclar(VIDRIO, CRISTAL, "RGBA"), bsdf.inputs["Base Color"])
+    # color del cristal según el ángulo: transparente al centro, bordes tornasolados
+    capa = nodes.new("ShaderNodeLayerWeight")
+    capa.inputs["Blend"].default_value = 0.6
+    bordes = nodes.new("ShaderNodeValToRGB")
+    for i, (pos, col) in enumerate(CRISTAL_BORDES):
+        el = bordes.color_ramp.elements[i] if i < 2 else bordes.color_ramp.elements.new(pos)
+        el.position, el.color = pos, col
+    links.new(capa.outputs["Facing"], bordes.inputs["Fac"])
+    links.new(mezclar(VIDRIO, bordes.outputs["Color"], "RGBA"), bsdf.inputs["Base Color"])
     links.new(mezclar(PELICULA_NM, espesor.outputs["Result"]), bsdf.inputs["Thin Film Thickness"])
     # índice de la película: suave en el rosa, alto (colores intensos) en el cristal
     links.new(mezclar(1.33, 1.8), bsdf.inputs["Thin Film IOR"])
@@ -551,7 +629,31 @@ def crear_vidrio():
     links.new(mezclar(SOMBRA, paleta.outputs["Color"], "RGBA"), trans.inputs["Color"])
     mezcla = nodes.new("ShaderNodeMixShader")
     links.new(camino.outputs["Is Shadow Ray"], mezcla.inputs["Fac"])
-    links.new(bsdf.outputs["BSDF"], mezcla.inputs[1])
+    # dispersión (prisma): tres vidrios rojo/verde/azul con índices distintos;
+    # separa los colores en los bordes. Solo en el cristal.
+    prisma = None
+    for color, ior in (((1, 0, 0, 1), 1.46), ((0, 1, 0, 1), 1.50), ((0, 0, 1, 1), 1.55)):
+        g = nodes.new("ShaderNodeBsdfGlass")
+        g.inputs["Color"].default_value = color
+        g.inputs["Roughness"].default_value = 0.0
+        g.inputs["IOR"].default_value = ior
+        if prisma is None:
+            prisma = g.outputs["BSDF"]
+        else:
+            suma = nodes.new("ShaderNodeAddShader")
+            links.new(prisma, suma.inputs[0])
+            links.new(g.outputs["BSDF"], suma.inputs[1])
+            prisma = suma.outputs["Shader"]
+    cuanto = nodes.new("ShaderNodeMath")
+    cuanto.operation = "MULTIPLY"
+    links.new(f, cuanto.inputs[0])
+    cuanto.inputs[1].default_value = CRISTAL_DISPERSION
+    vidrio = nodes.new("ShaderNodeMixShader")
+    links.new(cuanto.outputs[0], vidrio.inputs["Fac"])
+    links.new(bsdf.outputs["BSDF"], vidrio.inputs[1])
+    links.new(prisma, vidrio.inputs[2])
+
+    links.new(vidrio.outputs["Shader"], mezcla.inputs[1])
     links.new(trans.outputs["BSDF"], mezcla.inputs[2])
     links.new(mezcla.outputs["Shader"], out.inputs["Surface"])
 

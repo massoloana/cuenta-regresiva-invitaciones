@@ -117,10 +117,61 @@ def inflar_y_coser(obj, inflado, pliegue=0.035):
         lado = 1 if v.co.y >= 0 else -1
         v.co.y += lado * inflado * domo * (abs(v.co.y) / ymax)
         # pliegue de costura: los vértices cerca del "ecuador" se hunden
-        cerca = math.exp(-(v.co.y / (ymax * 0.12)) ** 2)
+        cerca = math.exp(-(v.co.y / (ymax * 0.07)) ** 2)
         hacia = Vector((v.co.x - cx, 0, v.co.z - cz))
         if hacia.length > 1e-4:
             v.co -= hacia.normalized() * pliegue * cerca
+    obj.data.update()
+
+
+def distancia_borde(x, z, poligono):
+    """Distancia (x, z) al contorno del polígono, positiva adentro."""
+    mejor, dentro = 1e9, False
+    n = len(poligono)
+    for i in range(n):
+        (x1, z1), (x2, z2) = poligono[i], poligono[(i + 1) % n]
+        dx, dz = x2 - x1, z2 - z1
+        t = max(0.0, min(1.0, ((x - x1) * dx + (z - z1) * dz) / (dx * dx + dz * dz + 1e-12)))
+        d = (x - x1 - t * dx) ** 2 + (z - z1 - t * dz) ** 2
+        mejor = min(mejor, d)
+        if (z1 > z) != (z2 > z) and x < dx * (z - z1) / (dz + 1e-12) + x1:
+            dentro = not dentro
+    return math.sqrt(mejor) if dentro else -math.sqrt(mejor)
+
+
+def arrugar(obj, poligono, adentro, surco=0.04, arrugas=0.03, bultos=0.025, semilla=0):
+    """Tela de almohadón: surco hundido en el pespunte, el borde entre la
+    costura y el pespunte bien abultado, arrugas que nacen en la costura y
+    bultos irregulares de relleno."""
+    from mathutils import noise
+    obj.data.update()
+    vs = obj.data.vertices
+    ymax = max(abs(v.co.y) for v in vs)
+    cx = sum(p[0] for p in poligono) / len(poligono)
+    cz = sum(p[1] for p in poligono) / len(poligono)
+    desplazar = []
+    for v in vs:
+        x, y, z = v.co
+        d = distancia_borde(x, z, poligono)
+        cara = min(1.0, max(0.0, (abs(y) / ymax - 0.25) / 0.35))   # 0 en el costado, 1 en la cara
+        # surco del pespunte (tela tirante: se hunde en una línea)
+        h = -surco * math.exp(-((d - adentro) / 0.035) ** 2) * cara
+        # el ribete entre costura y pespunte se infla un poco
+        if 0 < d < adentro:
+            h += surco * 0.45 * math.sin(math.pi * d / adentro) * cara
+        # arrugas: nacen en la costura y se apagan hacia adentro
+        ang = math.atan2(z - cz, x - cx)
+        ondula = noise.noise(Vector((x * 0.8, y * 0.8 + semilla, z * 0.8))) * 3.0
+        fuerza_local = 0.5 + 0.5 * noise.noise(Vector((x * 1.1 + 5, semilla, z * 1.1)))
+        cresta = math.sin(ang * 7 + ondula) * max(0.0, fuerza_local)
+        cerca_costura = math.exp(-max(0.0, d) / 0.22) * (1 - 0.6 * cara) + \
+            math.exp(-max(0.0, d) / 0.12) * 0.6 * cara
+        h += arrugas * cresta * cerca_costura
+        # bultos irregulares del relleno
+        h += bultos * noise.noise(Vector((x * 0.9 + semilla, y * 0.9, z * 0.9)))
+        desplazar.append(v.normal.copy() * h)
+    for v, dv in zip(vs, desplazar):
+        v.co += dv
     obj.data.update()
 
 
@@ -167,7 +218,7 @@ def material_tela(nombre, color, pespunte=None):
         dist = mate("ADD", mate("ADD", afuera, mate("MINIMUM", mate("MAXIMUM", qx, qz), 0.0)), -r)
         # banda angosta en dist = -adentro, solo en las caras (no en el costado)
         cerca = mate("ABSOLUTE", mate("ADD", dist, adentro))
-        linea = mate("LESS_THAN", cerca, 0.012)
+        linea = mate("LESS_THAN", cerca, 0.014)
         cara = mate("GREATER_THAN", mate("ABSOLUTE", sep.outputs["Y"]), 0.3)
         linea = mate("MULTIPLY", linea, cara)
         # frunce: arruguitas de la tela junto a la costura y al pespunte
@@ -229,13 +280,15 @@ def material_tela(nombre, color, pespunte=None):
 def crear_logo():
     rojo = almohadon("almohadon_rojo", rectangulo_redondeado(ANCHO, ALTO, 0.62),
                      PROFUNDIDAD, 0.34, 0.07)
-    inflar_y_coser(rojo, INFLADO)
+    inflar_y_coser(rojo, INFLADO, pliegue=0.10)
+    arrugar(rojo, rectangulo_redondeado(ANCHO, ALTO, 0.62), 0.16, semilla=1)
     rojo.data.materials.append(material_tela("tela_roja", ROJO, (ANCHO / 2, ALTO / 2, 0.62, 0.16)))
     bpy.ops.object.shade_smooth()
 
     blanco = almohadon("almohadon_blanco", TRIANGULO, PROFUNDIDAD_TRIANGULO, 0.26, 0.06)
     bpy.context.view_layer.objects.active = blanco
-    inflar_y_coser(blanco, INFLADO * 0.6, pliegue=0.025)
+    inflar_y_coser(blanco, INFLADO * 0.6, pliegue=0.06)
+    arrugar(blanco, TRIANGULO, 0.09, surco=0.0, arrugas=0.012, bultos=0.008, semilla=7)
     blanco.data.materials.append(material_tela("tela_blanca", BLANCO))
     bpy.ops.object.shade_smooth()
     # apoyado contra el frente del rojo, hundiéndolo apenas (se aprietan)

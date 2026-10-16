@@ -88,8 +88,9 @@
     <button id="p-neon" class="dot" data-preset="neon" aria-label="Luz neón" aria-pressed="false" style="--c1:#ff2d95;--c2:#2fe3ff"></button>
     <button id="p-atardecer" class="dot" data-preset="atardecer" aria-label="Luz de atardecer" aria-pressed="false" style="--c1:#ffae66;--c2:#ff6a8a"></button>
   </div>
-  <div class="seg" role="group" aria-label="Terminación de la pintura">
-    <button id="f-mate" class="dot finish" data-finish="mate" aria-label="Pintura mate" aria-pressed="true" style="background:#8f1247"></button>
+  <div class="seg" role="group" aria-label="Terminación de la lata">
+    <button id="f-aluminio" class="dot finish" data-finish="aluminio" aria-label="Aluminio natural" aria-pressed="true" style="background:linear-gradient(100deg, #8d9299 0%, #d9dce0 35%, #ffffff 47%, #c9cdd2 58%, #7d828a 100%)"></button>
+    <button id="f-mate" class="dot finish" data-finish="mate" aria-label="Pintura mate" aria-pressed="false" style="background:#8f1247"></button>
     <button id="f-satinado" class="dot finish" data-finish="satinado" aria-label="Pintura satinada" aria-pressed="false" style="background:radial-gradient(circle at 35% 30%, #d8578f, #8f1247 60%, #5e0a2f)"></button>
     <button id="f-metalizado" class="dot finish" data-finish="metalizado" aria-label="Pintura metalizada" aria-pressed="false" style="background:linear-gradient(100deg, #4f0827 0%, #a3195a 35%, #ffd0e2 47%, #a3195a 58%, #4f0827 100%)"></button>
   </div>
@@ -187,18 +188,18 @@
   const PROFILE = [
     [0, 9.6], [6, 9.4], [12, 8.5], [17, 6.7], [20.5, 4.5], [22.6, 2.3], [23.8, 0.7],
     [25, 0], [26.2, 0.45], [28, 2.3], [30.2, 5.1], [31.9, 8.1], [32.8, 10.8], [33, 12.8],
-    [33, 30], [33, 55], [33, 80], [33, 98.4],
-    [32.8, 101], [32.1, 104.4], [30.7, 108.1], [29.1, 111.3], [28, 113.6], [27.55, 115.2],
-    [27.6, 117], [27.95, 119.4], [27.75, 121.2], [27.15, 122], [26.35, 121.9], [25.85, 121.1],
-    [25.6, 119.4], [25.25, 117], [24.7, 115.6], [24, 115.15], [23.35, 115.55], [22.8, 116.6],
+    [33, 30], [33, 60], [33, 90], [33, 107],
+    [32.8, 109.6], [32.1, 113], [30.8, 116.6], [29.3, 119.8], [28.1, 122.1], [27.6, 123.4],
+    [27.65, 125], [28, 127.4], [27.8, 129.2], [27.2, 130], [26.4, 129.9], [25.9, 129.1],
+    [25.65, 127.4], [25.3, 125], [24.75, 123.6], [24.05, 123.15], [23.4, 123.55], [22.8, 124.6],
   ];
   const curve = new THREE.CatmullRomCurve3(PROFILE.map(([x, y]) => new THREE.Vector3(x, y, 0)), false, 'centripetal');
   const N = 700;
   const spaced = curve.getSpacedPoints(N - 1);
   const shellGeo = new THREE.LatheGeometry(spaced.map(p => new THREE.Vector2(p.x, p.y)), 220);
 
-  // Zonas a lo largo del perfil: pintura rosa en el cuerpo y el cuello, aluminio desnudo en fondo y costura
-  const PAINT_FROM = 11.5, PAINT_TO = 113.2;
+  // Zonas a lo largo del perfil: cuerpo y cuello (pintables), aluminio desnudo en fondo y costura
+  const PAINT_FROM = 11.5, PAINT_TO = 121.4;
   const firstPaint = spaced.findIndex(p => p.y >= PAINT_FROM && p.x > 30);
   let lastPaint = firstPaint;
   for (let j = firstPaint; j < N && spaced[j].y <= PAINT_TO && spaced[j].x > 27.9; j++) lastPaint = j;
@@ -217,35 +218,30 @@
   colorCanvas.width = pbrCanvas.width = 4;
   colorCanvas.height = pbrCanvas.height = N;
   const cctx = colorCanvas.getContext('2d'), pctx = pbrCanvas.getContext('2d');
-  const cImg = cctx.createImageData(4, N);
-  for (let j = 0; j < N; j++) {
-    const m = paintAt(j);
-    const row = N - 1 - j;
-    for (let x = 0; x < 4; x++) {
-      const k = (row * 4 + x) * 4;
-      cImg.data[k] = (ALU[0] + (PINK[0] - ALU[0]) * m) * 255;
-      cImg.data[k + 1] = (ALU[1] + (PINK[1] - ALU[1]) * m) * 255;
-      cImg.data[k + 2] = (ALU[2] + (PINK[2] - ALU[2]) * m) * 255;
-      cImg.data[k + 3] = 255;
-    }
-  }
-  cctx.putImageData(cImg, 0, 0);
   const shellColor = new THREE.CanvasTexture(colorCanvas);
   shellColor.encoding = THREE.sRGBEncoding;
   const shellPbr = new THREE.CanvasTexture(pbrCanvas);
 
-  // Terminaciones de la pintura; el aluminio desnudo siempre queda pulido y con laca
+  // Terminaciones del cuerpo; el aluminio desnudo de fondo y costura siempre queda pulido y con laca
   const FINISHES = {
+    aluminio: { color: ALU, rough: 0.24, metal: 1, coat: 0.5, brush: 0.5 }, // sin pintar, cepillado como la foto
     mate: { rough: 0.62, metal: 0.08, coat: 0 },        // soft-touch, sin brillo
     satinado: { rough: 0.42, metal: 0.35, coat: 0.35 },
     metalizado: { rough: 0.3, metal: 0.72, coat: 1 },   // tinta translúcida sobre aluminio, con laca
   };
   function paintFinish(name) {
     const fin = FINISHES[name];
+    const col = fin.color || PINK;
     const pImg = pctx.createImageData(4, N);
+    const cImg = cctx.createImageData(4, N);
     for (let j = 0; j < N; j++) {
       const m = paintAt(j);
       const row = N - 1 - j;
+      for (let x = 0; x < 4; x++) {
+        const k = (row * 4 + x) * 4;
+        for (let ch = 0; ch < 3; ch++) cImg.data[k + ch] = (ALU[ch] + (col[ch] - ALU[ch]) * m) * 255;
+        cImg.data[k + 3] = 255;
+      }
       const rough = 0.17 + (fin.rough - 0.17) * m;
       const metal = 1 + (fin.metal - 1) * m;
       const coat = 1 + (fin.coat - 1) * m;
@@ -258,21 +254,25 @@
       }
     }
     pctx.putImageData(pImg, 0, 0);
+    cctx.putImageData(cImg, 0, 0);
     shellPbr.needsUpdate = true;
+    shellColor.needsUpdate = true;
+    // la pintura tapa el cepillado del metal
+    const ns = fin.brush || 0.1;
+    shellMat.normalScale.set(ns, ns);
     document.querySelectorAll('[data-finish]').forEach(b =>
       b.setAttribute('aria-pressed', String(b.dataset.finish === name)));
   }
-  paintFinish('mate');
-  document.querySelectorAll('[data-finish]').forEach(b =>
-    b.addEventListener('click', () => paintFinish(b.dataset.finish)));
 
   // Relieve: anillos de torneado en el fondo y la costura, ondulación mínima de la pared
   const shellNormal = (() => {
-    const W = 512, H = N;
+    const W = 1024, H = N;
     const h = new Float32Array(W * H);
     const r = rng(11);
     const rings = new Float32Array(H);
     for (let j = 0; j < H; j++) rings[j] = r();
+    const lines = new Float32Array(W);
+    for (let x = 0; x < W; x++) lines[x] = r() * 0.7 + (r() > 0.93 ? 0.6 : 0);
     for (let y = 0; y < H; y++) {
       const j = N - 1 - y;
       const m = paintAt(j);
@@ -280,7 +280,7 @@
       for (let x = 0; x < W; x++) {
         const u = x / W * Math.PI * 2;
         const wobble = m * (0.35 * Math.sin(u * 3 + j * 0.011) + 0.2 * Math.sin(u * 7 + 1.3 + j * 0.02));
-        h[y * W + x] = bare * 0.6 + wobble * 0.15;
+        h[y * W + x] = bare * 0.6 + wobble * 0.15 + m * lines[x] * 0.22;
       }
     }
     return heightToNormal(h, W, H, 1.2, true);
@@ -293,13 +293,16 @@
     roughness: 1,
     metalness: 1,
     normalMap: shellNormal,
-    normalScale: new THREE.Vector2(0.35, 0.35),
+    normalScale: new THREE.Vector2(0.5, 0.5),
     clearcoat: 1,
     clearcoatMap: shellPbr,
     clearcoatRoughness: 0.045,
     envMapIntensity: 1.15,
     side: THREE.DoubleSide,
   });
+  paintFinish('aluminio');
+  document.querySelectorAll('[data-finish]').forEach(b =>
+    b.addEventListener('click', () => paintFinish(b.dataset.finish)));
 
   // Tapa: aluminio con marcas concéntricas de estampado, panel de apertura, nervio y hueco para el dedo
   const LID_R = 22.8;
@@ -322,6 +325,8 @@
         const f = Math.pow(Math.abs(x / 7.6), 2.6) + Math.pow(Math.abs((z - 10.6) / 7.2), 2.6);
         v += 0.35 * (1 - THREE.MathUtils.smoothstep(f, 0.85, 1.05)); // panel de apertura levemente elevado
         v -= 0.75 * bump(f - 1.06, 0.035);                  // línea de corte
+        const fu = Math.pow(Math.abs(x / 10.4), 2.4) + Math.pow(Math.abs((z - 8.4) / 10), 2.4);
+        v += 0.85 * bump(fu - 1, 0.05) * THREE.MathUtils.smoothstep(z, -3, 1); // nervio en U
         const g = Math.pow(x / 6.2, 2) + Math.pow((z + 10.4) / 4.4, 2);
         v -= 0.8 * (1 - THREE.MathUtils.smoothstep(g, 0.6, 1.2)); // hueco para el dedo
         h[py * S + px] = v;
@@ -345,14 +350,14 @@
 
   const canModel = new THREE.Group();
   canModel.scale.setScalar(0.02);
-  canModel.position.y = -61 * 0.02;
+  canModel.position.y = -65 * 0.02;
 
   canModel.add(new THREE.Mesh(shellGeo, shellMat));
 
   const lidGeo = new THREE.CircleGeometry(LID_R, 160);
   const lid = new THREE.Mesh(lidGeo, lidMat);
   lid.rotation.x = -Math.PI / 2;
-  lid.position.y = 116.6;
+  lid.position.y = 124.6;
   canModel.add(lid);
 
   // Anilla: cuerpo con nariz delantera, aro trasero y bordes redondeados
@@ -374,11 +379,11 @@
     depth: 0.35, bevelEnabled: true, bevelThickness: 0.28, bevelSize: 0.32, bevelSegments: 4, curveSegments: 40,
   }), tabMat);
   tab.rotation.x = -Math.PI / 2;
-  tab.position.set(0, 117.05, 0.4);
+  tab.position.set(0, 125.05, 0.4);
   canModel.add(tab);
   const rivet = new THREE.Mesh(new THREE.SphereGeometry(2.1, 32, 12, 0, Math.PI * 2, 0, Math.PI / 2), tabMat);
   rivet.scale.y = 0.45;
-  rivet.position.set(0, 117.6, 0);
+  rivet.position.set(0, 125.6, 0);
   canModel.add(rivet);
 
   canModel.traverse(o => { if (o.isMesh) o.castShadow = true; });

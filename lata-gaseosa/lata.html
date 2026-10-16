@@ -15,6 +15,15 @@
   #stage { position: fixed; inset: 0; }
   #stage canvas { display: block; width: 100%; height: 100%; touch-action: none; }
 
+  /* acabado fotográfico: viñeta suave y grano fino encima del render */
+  .grade {
+    position: fixed; inset: 0; pointer-events: none;
+    background: radial-gradient(ellipse 75% 70% at 50% 46%, rgba(0, 0, 0, 0) 55%, rgba(0, 0, 0, 0.38) 100%);
+  }
+  .grade::after {
+    content: ""; position: absolute; inset: 0; opacity: 0.06; mix-blend-mode: overlay;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+  }
   .controls {
     position: fixed;
     left: 50%;
@@ -71,6 +80,8 @@
 
 <div id="stage" aria-label="Lata de gaseosa en 3D flotando sobre una tela"></div>
 
+<div class="grade" aria-hidden="true"></div>
+
 <div class="controls">
   <div class="seg" role="group" aria-label="Iluminación">
     <button id="p-estudio" class="dot" data-preset="estudio" aria-label="Luz de estudio" aria-pressed="true" style="--c1:#ffe6d2;--c2:#ff4f9a"></button>
@@ -101,98 +112,246 @@
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   renderer.outputEncoding = THREE.sRGBEncoding;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.1;
+  renderer.toneMappingExposure = 1.0;
   renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.shadowMap.type = THREE.VSMShadowMap;
   stage.appendChild(renderer.domElement);
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color('#140a10');
   scene.fog = new THREE.FogExp2('#140a10', 0.05);
 
-  const camera = new THREE.PerspectiveCamera(32, 1, 0.1, 100);
-  camera.position.set(0, 2.1, 7.6);
+  const camera = new THREE.PerspectiveCamera(24, 1, 0.1, 100);
+  camera.position.set(0, 2.1, 9.8);
 
   const controls = new THREE.OrbitControls(camera, renderer.domElement);
   controls.target.set(0, 1.65, 0);
   controls.enableDamping = true;
   controls.dampingFactor = 0.06;
   controls.enablePan = false;
-  controls.minDistance = 4;
-  controls.maxDistance = 12;
+  controls.minDistance = 5;
+  controls.maxDistance = 15;
   controls.minPolarAngle = 0.55;
   controls.maxPolarAngle = 1.52;
   controls.minAzimuthAngle = -1.1;
   controls.maxAzimuthAngle = 1.1;
   controls.update();
 
-  // ---------- Lata (medidas en mm, escala 0.02) ----------
-  const alu = new THREE.MeshStandardMaterial({ color: 0xd8dbe0, metalness: 1, roughness: 0.2, side: THREE.DoubleSide });
-  const aluLid = new THREE.MeshStandardMaterial({ color: 0xc6cad0, metalness: 1, roughness: 0.3, side: THREE.DoubleSide });
-  // Etiqueta lisa: pintura rosa oscuro sobre aluminio, con laca
-  const bodyMat = new THREE.MeshPhysicalMaterial({
-    color: '#a01a55',
-    metalness: 0.55,
-    roughness: 0.32,
-    clearcoat: 0.7,
-    clearcoatRoughness: 0.08,
+  // ---------- Lata (medidas reales en mm de una lata de 355 ml, escala 0.02) ----------
+  const maxAniso = renderer.capabilities.getMaxAnisotropy();
+
+  // Ruido determinístico para las texturas procedurales
+  function rng(seed) {
+    return () => {
+      seed = (seed * 16807) % 2147483647;
+      return (seed - 1) / 2147483646;
+    };
+  }
+
+  // Convierte un mapa de alturas en un normal map (tangente)
+  function heightToNormal(h, w, hh, strength, wrapX) {
+    const c = document.createElement('canvas');
+    c.width = w; c.height = hh;
+    const ctx = c.getContext('2d');
+    const img = ctx.createImageData(w, hh);
+    const at = (x, y) => {
+      if (wrapX) x = (x + w) % w; else x = Math.max(0, Math.min(w - 1, x));
+      y = Math.max(0, Math.min(hh - 1, y));
+      return h[y * w + x];
+    };
+    for (let y = 0; y < hh; y++) {
+      for (let x = 0; x < w; x++) {
+        const dx = (at(x + 1, y) - at(x - 1, y)) * strength;
+        const dy = (at(x, y + 1) - at(x, y - 1)) * strength;
+        const len = Math.hypot(dx, dy, 1);
+        const k = (y * w + x) * 4;
+        img.data[k] = (-dx / len * 0.5 + 0.5) * 255;
+        img.data[k + 1] = (dy / len * 0.5 + 0.5) * 255;
+        img.data[k + 2] = (1 / len * 0.5 + 0.5) * 255;
+        img.data[k + 3] = 255;
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+    const t = new THREE.CanvasTexture(c);
+    t.anisotropy = maxAniso;
+    if (wrapX) t.wrapS = THREE.RepeatWrapping;
+    return t;
+  }
+
+  // Perfil exterior completo: del centro del fondo abovedado hasta el borde del panel de la tapa
+  const PROFILE = [
+    [0, 9.6], [6, 9.4], [12, 8.5], [17, 6.7], [20.5, 4.5], [22.6, 2.3], [23.8, 0.7],
+    [25, 0], [26.2, 0.45], [28, 2.3], [30.2, 5.1], [31.9, 8.1], [32.8, 10.8], [33, 12.8],
+    [33, 30], [33, 55], [33, 80], [33, 98.4],
+    [32.8, 101], [32.1, 104.4], [30.7, 108.1], [29.1, 111.3], [28, 113.6], [27.55, 115.2],
+    [27.6, 117], [27.95, 119.4], [27.75, 121.2], [27.15, 122], [26.35, 121.9], [25.85, 121.1],
+    [25.6, 119.4], [25.25, 117], [24.7, 115.6], [24, 115.15], [23.35, 115.55], [22.8, 116.6],
+  ];
+  const curve = new THREE.CatmullRomCurve3(PROFILE.map(([x, y]) => new THREE.Vector3(x, y, 0)), false, 'centripetal');
+  const N = 700;
+  const spaced = curve.getSpacedPoints(N - 1);
+  const shellGeo = new THREE.LatheGeometry(spaced.map(p => new THREE.Vector2(p.x, p.y)), 220);
+
+  // Zonas a lo largo del perfil: pintura rosa en el cuerpo y el cuello, aluminio desnudo en fondo y costura
+  const PAINT_FROM = 11.5, PAINT_TO = 113.2;
+  const firstPaint = spaced.findIndex(p => p.y >= PAINT_FROM && p.x > 30);
+  let lastPaint = firstPaint;
+  for (let j = firstPaint; j < N && spaced[j].y <= PAINT_TO && spaced[j].x > 27.9; j++) lastPaint = j;
+  const paintAt = j => {
+    const soft = 3;
+    const a = THREE.MathUtils.smoothstep(j, firstPaint - soft, firstPaint + soft);
+    const b = 1 - THREE.MathUtils.smoothstep(j, lastPaint - soft, lastPaint + soft);
+    return a * b;
+  };
+
+  // Mapas 1D (filas = posición a lo largo del perfil; canvas fila 0 = arriba = v 1)
+  const PINK = [0.62, 0.075, 0.30];  // rosa oscuro (sRGB 0-1)
+  const ALU = [0.86, 0.87, 0.89];
+  const colorCanvas = document.createElement('canvas');
+  const pbrCanvas = document.createElement('canvas');
+  colorCanvas.width = pbrCanvas.width = 4;
+  colorCanvas.height = pbrCanvas.height = N;
+  const cctx = colorCanvas.getContext('2d'), pctx = pbrCanvas.getContext('2d');
+  const cImg = cctx.createImageData(4, N), pImg = pctx.createImageData(4, N);
+  for (let j = 0; j < N; j++) {
+    const m = paintAt(j);
+    const row = N - 1 - j;
+    // pintura translúcida sobre aluminio: menos metálica y un poco más rugosa que el metal desnudo
+    const rough = 0.17 + (0.3 - 0.17) * m;
+    const metal = 1 + (0.72 - 1) * m;
+    for (let x = 0; x < 4; x++) {
+      const k = (row * 4 + x) * 4;
+      cImg.data[k] = (ALU[0] + (PINK[0] - ALU[0]) * m) * 255;
+      cImg.data[k + 1] = (ALU[1] + (PINK[1] - ALU[1]) * m) * 255;
+      cImg.data[k + 2] = (ALU[2] + (PINK[2] - ALU[2]) * m) * 255;
+      cImg.data[k + 3] = 255;
+      pImg.data[k] = 0;
+      pImg.data[k + 1] = rough * 255;
+      pImg.data[k + 2] = metal * 255;
+      pImg.data[k + 3] = 255;
+    }
+  }
+  cctx.putImageData(cImg, 0, 0);
+  pctx.putImageData(pImg, 0, 0);
+  const shellColor = new THREE.CanvasTexture(colorCanvas);
+  shellColor.encoding = THREE.sRGBEncoding;
+  const shellPbr = new THREE.CanvasTexture(pbrCanvas);
+
+  // Relieve: anillos de torneado en el fondo y la costura, ondulación mínima de la pared
+  const shellNormal = (() => {
+    const W = 512, H = N;
+    const h = new Float32Array(W * H);
+    const r = rng(11);
+    const rings = new Float32Array(H);
+    for (let j = 0; j < H; j++) rings[j] = r();
+    for (let y = 0; y < H; y++) {
+      const j = N - 1 - y;
+      const m = paintAt(j);
+      const bare = (1 - m) * (rings[y] * 0.6 + 0.4 * Math.sin(j * 2.1));
+      for (let x = 0; x < W; x++) {
+        const u = x / W * Math.PI * 2;
+        const wobble = m * (0.35 * Math.sin(u * 3 + j * 0.011) + 0.2 * Math.sin(u * 7 + 1.3 + j * 0.02));
+        h[y * W + x] = bare * 0.6 + wobble * 0.15;
+      }
+    }
+    return heightToNormal(h, W, H, 1.2, true);
+  })();
+
+  const shellMat = new THREE.MeshPhysicalMaterial({
+    map: shellColor,
+    roughnessMap: shellPbr,
+    metalnessMap: shellPbr,
+    roughness: 1,
+    metalness: 1,
+    normalMap: shellNormal,
+    normalScale: new THREE.Vector2(0.35, 0.35),
+    clearcoat: 1,
+    clearcoatRoughness: 0.045,
+    envMapIntensity: 1.15,
+    side: THREE.DoubleSide,
   });
 
-  const lathe = (pts, mat) => new THREE.Mesh(
-    new THREE.LatheGeometry(pts.map(([x, y]) => new THREE.Vector2(x, y)), 160), mat);
+  // Tapa: aluminio con marcas concéntricas de estampado, panel de apertura, nervio y hueco para el dedo
+  const LID_R = 22.8;
+  const lidNormal = (() => {
+    const S = 1024;
+    const h = new Float32Array(S * S);
+    const r = rng(23);
+    const rings = new Float32Array(S);
+    for (let i = 0; i < S; i++) rings[i] = r();
+    const bump = (d, w) => Math.exp(-(d * d) / (2 * w * w));
+    for (let py = 0; py < S; py++) {
+      for (let px = 0; px < S; px++) {
+        // canvas → mm: x a la derecha, z hacia el frente (abajo del canvas)
+        const x = (px / (S - 1) * 2 - 1) * LID_R;
+        const z = (py / (S - 1) * 2 - 1) * LID_R;
+        const rad = Math.hypot(x, z);
+        let v = rings[Math.min(S - 1, Math.floor(rad / LID_R * S * 0.5))] * 0.08;
+        v += 0.9 * bump(rad - 20.3, 0.45);                 // nervio perimetral
+        v += 0.6 * bump(rad - 4.3, 0.5);                    // anillo alrededor del remache
+        const f = Math.pow(Math.abs(x / 7.6), 2.6) + Math.pow(Math.abs((z - 10.6) / 7.2), 2.6);
+        v += 0.35 * (1 - THREE.MathUtils.smoothstep(f, 0.85, 1.05)); // panel de apertura levemente elevado
+        v -= 0.75 * bump(f - 1.06, 0.035);                  // línea de corte
+        const g = Math.pow(x / 6.2, 2) + Math.pow((z + 10.4) / 4.4, 2);
+        v -= 0.8 * (1 - THREE.MathUtils.smoothstep(g, 0.6, 1.2)); // hueco para el dedo
+        h[py * S + px] = v;
+      }
+    }
+    return heightToNormal(h, S, S, 2.4, false);
+  })();
+  const lidMat = new THREE.MeshPhysicalMaterial({
+    color: 0xcfd3d8,
+    metalness: 1,
+    roughness: 0.27,
+    normalMap: lidNormal,
+    normalScale: new THREE.Vector2(0.6, 0.6),
+    clearcoat: 0.5,
+    clearcoatRoughness: 0.12,
+    envMapIntensity: 1.1,
+  });
+  const tabMat = new THREE.MeshPhysicalMaterial({
+    color: 0xd9dce0, metalness: 1, roughness: 0.2, clearcoat: 0.6, clearcoatRoughness: 0.08, envMapIntensity: 1.2,
+  });
 
   const canModel = new THREE.Group();
   canModel.scale.setScalar(0.02);
-  canModel.position.y = -60 * 0.02;
+  canModel.position.y = -61 * 0.02;
 
-  const body = new THREE.Mesh(new THREE.CylinderGeometry(33, 33, 88, 180, 1, true), bodyMat);
-  body.position.y = 56;
-  canModel.add(body);
+  canModel.add(new THREE.Mesh(shellGeo, shellMat));
 
-  canModel.add(lathe([
-    [0, 8], [10, 7.4], [17, 5.8], [21.5, 3.2], [23.5, 1], [24.5, 0], [26, 0.4],
-    [28, 2], [30.5, 5], [32.4, 9], [33, 12],
-  ], alu));
+  const lidGeo = new THREE.CircleGeometry(LID_R, 160);
+  const lid = new THREE.Mesh(lidGeo, lidMat);
+  lid.rotation.x = -Math.PI / 2;
+  lid.position.y = 116.6;
+  canModel.add(lid);
 
-  canModel.add(lathe([
-    [33, 100], [32.7, 103.5], [31.6, 107.5], [29.6, 111.5], [28, 114.6], [27.4, 116.6],
-    [27.6, 118.4], [27.1, 119.6], [26.2, 119.9], [25.5, 119.3], [25.2, 117.5], [24.8, 116.4],
-    [23.5, 116], [0, 116],
-  ], aluLid));
-
-  const groove = new THREE.Mesh(new THREE.TorusGeometry(21.6, 0.35, 8, 140), aluLid);
-  groove.rotation.x = Math.PI / 2;
-  groove.position.y = 116.05;
-  canModel.add(groove);
-
-  // Anilla
+  // Anilla: cuerpo con nariz delantera, aro trasero y bordes redondeados
   const tabShape = new THREE.Shape();
-  (function () {
-    const x0 = -6.5, x1 = 6.5, y0 = -5, y1 = 15, r = 5;
-    tabShape.moveTo(x0 + r, y0);
-    tabShape.lineTo(x1 - r, y0);
-    tabShape.quadraticCurveTo(x1, y0, x1, y0 + r);
-    tabShape.lineTo(x1, y1 - r);
-    tabShape.quadraticCurveTo(x1, y1, x1 - r, y1);
-    tabShape.lineTo(x0 + r, y1);
-    tabShape.quadraticCurveTo(x0, y1, x0, y1 - r);
-    tabShape.lineTo(x0, y0 + r);
-    tabShape.quadraticCurveTo(x0, y0, x0 + r, y0);
-    const hole = new THREE.Path();
-    hole.absellipse(0, 8.6, 4.2, 3.1, 0, Math.PI * 2, false, 0);
-    tabShape.holes.push(hole);
-  })();
+  tabShape.moveTo(-4.2, -4.6);
+  tabShape.quadraticCurveTo(0, -6.4, 4.2, -4.6);
+  tabShape.bezierCurveTo(6.6, -2, 7.2, 4, 7.2, 8);
+  tabShape.bezierCurveTo(7.2, 13.2, 4.2, 15.4, 0, 15.4);
+  tabShape.bezierCurveTo(-4.2, 15.4, -7.2, 13.2, -7.2, 8);
+  tabShape.bezierCurveTo(-7.2, 4, -6.6, -2, -4.2, -4.6);
+  const ring = new THREE.Path();
+  ring.moveTo(0, 4.6);
+  ring.bezierCurveTo(3.4, 4.6, 4.6, 6.6, 4.6, 8.9);
+  ring.bezierCurveTo(4.6, 11.4, 2.8, 12.6, 0, 12.6);
+  ring.bezierCurveTo(-2.8, 12.6, -4.6, 11.4, -4.6, 8.9);
+  ring.bezierCurveTo(-4.6, 6.6, -3.4, 4.6, 0, 4.6);
+  tabShape.holes.push(ring);
   const tab = new THREE.Mesh(new THREE.ExtrudeGeometry(tabShape, {
-    depth: 0.4, bevelEnabled: true, bevelThickness: 0.2, bevelSize: 0.25, bevelSegments: 2, curveSegments: 24,
-  }), alu);
+    depth: 0.35, bevelEnabled: true, bevelThickness: 0.28, bevelSize: 0.32, bevelSegments: 4, curveSegments: 40,
+  }), tabMat);
   tab.rotation.x = -Math.PI / 2;
-  tab.position.set(0, 116.35, -1);
+  tab.position.set(0, 117.05, 0.4);
   canModel.add(tab);
-  const rivet = new THREE.Mesh(new THREE.CylinderGeometry(2.2, 2.6, 1.1, 28), aluLid);
-  rivet.position.set(0, 116.5, 0);
+  const rivet = new THREE.Mesh(new THREE.SphereGeometry(2.1, 32, 12, 0, Math.PI * 2, 0, Math.PI / 2), tabMat);
+  rivet.scale.y = 0.45;
+  rivet.position.set(0, 117.6, 0);
   canModel.add(rivet);
 
-  canModel.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+  canModel.traverse(o => { if (o.isMesh) o.castShadow = true; });
 
   const canSpin = new THREE.Group();
   canSpin.add(canModel);
@@ -259,8 +418,9 @@
     if (shadow) {
       l.castShadow = true;
       l.shadow.mapSize.set(2048, 2048);
-      l.shadow.bias = -0.0004;
-      l.shadow.normalBias = 0.02;
+      l.shadow.bias = -0.0002;
+      l.shadow.radius = 14;
+      l.shadow.blurSamples = 24;
       l.shadow.camera.near = 1;
       l.shadow.camera.far = 30;
     }
@@ -280,22 +440,46 @@
   // ---------- Entorno para los reflejos del aluminio ----------
   const pmrem = new THREE.PMREMGenerator(renderer);
   let envRT = null;
+  // textura de softbox: centro parejo y caída suave hacia los bordes
+  const softbox = (() => {
+    const c = document.createElement('canvas');
+    c.width = c.height = 128;
+    const x = c.getContext('2d');
+    const img = x.createImageData(128, 128);
+    for (let py = 0; py < 128; py++) {
+      for (let px = 0; px < 128; px++) {
+        const u = Math.abs(px / 63.5 - 1), v = Math.abs(py / 63.5 - 1);
+        const e = (1 - THREE.MathUtils.smoothstep(u, 0.6, 1)) * (1 - THREE.MathUtils.smoothstep(v, 0.75, 1));
+        const k = (py * 128 + px) * 4;
+        img.data[k] = img.data[k + 1] = img.data[k + 2] = e * 255;
+        img.data[k + 3] = 255;
+      }
+    }
+    x.putImageData(img, 0, 0);
+    return new THREE.CanvasTexture(c);
+  })();
   function buildEnv(e) {
     const s = new THREE.Scene();
     s.add(new THREE.Mesh(new THREE.SphereGeometry(20, 32, 16),
       new THREE.MeshBasicMaterial({ color: e.base, side: THREE.BackSide })));
     const panel = (w, h, color, mult, at) => {
       const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h),
-        new THREE.MeshBasicMaterial({ color: new THREE.Color(color).multiplyScalar(mult), side: THREE.DoubleSide }));
+        new THREE.MeshBasicMaterial({ map: softbox, color: new THREE.Color(color).multiplyScalar(mult), side: THREE.DoubleSide }));
       m.position.set(...at);
-      m.lookAt(0, 0, 0);
+      m.lookAt(0, at[1] * 0.3, 0);
       s.add(m);
     };
-    panel(2.2, 12, e.l, 4, [-7, 2, 3]);
-    panel(2.2, 12, e.r, 4, [7, 1, -2]);
-    panel(10, 4, e.top, 2.2, [0, 9, 1]);
-    panel(14, 1.2, e.l, 1.4, [0, -3, 7]);
-    const rt = pmrem.fromScene(s, 0.03);
+    panel(1.6, 11, e.l, 5, [-6.5, 1.5, -2]);     // tira trasera izquierda: filo de luz
+    panel(1.6, 11, e.r, 5, [6.5, 1.5, -2]);      // tira trasera derecha
+    panel(1.4, 10, e.top, 3.2, [-4.2, 1.5, 7]);  // tira delantera: el brillo vertical clásico
+    panel(9, 9, e.top, 1.6, [0, 10, 0.5]);       // softbox cenital
+    panel(7, 4, e.top, 0.35, [3.5, 0.5, 8]);     // rebote de relleno
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(40, 40),
+      new THREE.MeshBasicMaterial({ color: new THREE.Color(e.base).multiplyScalar(2.2), side: THREE.DoubleSide }));
+    floor.rotation.x = -Math.PI / 2;
+    floor.position.y = -4;
+    s.add(floor);  // piso del estudio que rebota un poco de luz desde abajo
+    const rt = pmrem.fromScene(s, 0.012);
     if (envRT) envRT.dispose();
     envRT = rt;
     scene.environment = rt.texture;
@@ -395,7 +579,7 @@
     renderer.setSize(w, h, false);
     camera.aspect = w / h;
     // en pantallas angostas, alejar un poco para que la lata entre entera
-    camera.fov = w / h < 0.75 ? 42 : 32;
+    camera.fov = w / h < 0.75 ? 34 : 24;
     camera.updateProjectionMatrix();
   }
   window.addEventListener('resize', resize);

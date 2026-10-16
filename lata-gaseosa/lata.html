@@ -216,16 +216,16 @@
   for (let j = 0; j < N; j++) {
     const m = paintAt(j);
     const row = N - 1 - j;
-    // pintura translúcida sobre aluminio: menos metálica y un poco más rugosa que el metal desnudo
-    const rough = 0.17 + (0.3 - 0.17) * m;
-    const metal = 1 + (0.72 - 1) * m;
+    // pintura mate (soft-touch): rugosa y casi sin brillo metálico; el aluminio desnudo sigue pulido
+    const rough = 0.17 + (0.62 - 0.17) * m;
+    const metal = 1 + (0.08 - 1) * m;
     for (let x = 0; x < 4; x++) {
       const k = (row * 4 + x) * 4;
       cImg.data[k] = (ALU[0] + (PINK[0] - ALU[0]) * m) * 255;
       cImg.data[k + 1] = (ALU[1] + (PINK[1] - ALU[1]) * m) * 255;
       cImg.data[k + 2] = (ALU[2] + (PINK[2] - ALU[2]) * m) * 255;
       cImg.data[k + 3] = 255;
-      pImg.data[k] = 0;
+      pImg.data[k] = (1 - m) * 255; // laca brillante solo sobre el aluminio desnudo
       pImg.data[k + 1] = rough * 255;
       pImg.data[k + 2] = metal * 255;
       pImg.data[k + 3] = 255;
@@ -266,6 +266,7 @@
     normalMap: shellNormal,
     normalScale: new THREE.Vector2(0.35, 0.35),
     clearcoat: 1,
+    clearcoatMap: shellPbr,
     clearcoatRoughness: 0.045,
     envMapIntensity: 1.15,
     side: THREE.DoubleSide,

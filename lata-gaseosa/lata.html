@@ -1,0 +1,750 @@
+<title>Lata Burbuja</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Unbounded:wght@500;800&display=swap">
+<style>
+  /* Layout: escena WebGL a pantalla completa; título arriba a la izquierda, controles de luz flotando abajo. Look oscuro único, a propósito. */
+  :root {
+    --bg: #140a10;
+    --ink: #f7eaf0;
+    --muted: #c7a5b5;
+    --glass: rgba(30, 12, 22, 0.58);
+    --line: rgba(255, 210, 228, 0.16);
+    --accent: #ff5c9d;
+    --display: "Unbounded", "Arial Black", system-ui, sans-serif;
+    --mono: "DM Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+    color-scheme: dark;
+  }
+  html, body { height: 100%; }
+  body { background: var(--bg); color: var(--ink); overflow: hidden; font-family: var(--mono); }
+  #stage { position: fixed; inset: 0; }
+  #stage canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+
+  .brand {
+    position: fixed;
+    top: calc(env(safe-area-inset-top, 0px) + 20px);
+    left: calc(max(16px, env(safe-area-inset-left, 0px)) + 4px);
+    right: calc(max(16px, env(safe-area-inset-right, 0px)) + 4px);
+    pointer-events: none;
+    display: grid;
+    gap: 6px;
+  }
+  .brand h1 {
+    margin: 0;
+    font-family: var(--display);
+    font-weight: 800;
+    font-size: clamp(22px, 4vw, 34px);
+    letter-spacing: 0.02em;
+    line-height: 1;
+    text-wrap: balance;
+  }
+  .brand p {
+    margin: 0;
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .controls {
+    position: fixed;
+    left: 50%;
+    transform: translateX(-50%);
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 20px);
+    max-width: calc(100% - 32px);
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: center;
+    gap: 10px;
+  }
+  .seg {
+    display: flex;
+    padding: 4px;
+    gap: 2px;
+    border-radius: 999px;
+    background: var(--glass);
+    border: 1px solid var(--line);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+  }
+  button {
+    font: 500 12px/1 var(--mono);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+    background: transparent;
+    border: 0;
+    border-radius: 999px;
+    padding: 10px 14px;
+    cursor: pointer;
+    transition: color .2s, background-color .2s;
+  }
+  button:hover { color: var(--ink); }
+  button[aria-pressed="true"] { color: var(--bg); background: var(--ink); }
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .solo {
+    background: var(--glass);
+    border: 1px solid var(--line);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+  }
+  .error {
+    position: fixed; inset: 0; display: grid; place-items: center;
+    padding-inline: 24px; text-align: center; color: var(--muted);
+  }
+</style>
+
+<div id="stage" aria-label="Lata de gaseosa en 3D flotando sobre una tela"></div>
+
+<header class="brand">
+  <h1>Burbuja</h1>
+  <p>Lata 355 ml · arrastrá para mirar alrededor</p>
+</header>
+
+<div class="controls">
+  <div class="seg" role="group" aria-label="Iluminación">
+    <button id="p-estudio" data-preset="estudio" aria-pressed="true">Estudio</button>
+    <button id="p-neon" data-preset="neon" aria-pressed="false">Neón</button>
+    <button id="p-atardecer" data-preset="atardecer" aria-pressed="false">Atardecer</button>
+  </div>
+  <button id="spin" class="solo" aria-pressed="false">Pausar giro</button>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+(() => {
+  const stage = document.getElementById('stage');
+  if (!window.THREE || !THREE.OrbitControls) {
+    stage.innerHTML = '<div class="error">No se pudo cargar three.js. Recargá la página.</div>';
+    return;
+  }
+
+  // ---------- Renderer, escena, cámara ----------
+  let renderer;
+  try {
+    renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+  } catch (e) {
+    stage.innerHTML = '<div class="error">Este navegador no tiene WebGL activado, así que no puede mostrar la escena 3D.</div>';
+    return;
+  }
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.outputEncoding = THREE.sRGBEncoding;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.1;
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  stage.appendChild(renderer.domElement);
+
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color('#140a10');
+  scene.fog = new THREE.FogExp2('#140a10', 0.05);
+
+  const camera = new THREE.PerspectiveCamera(32, 1, 0.1, 100);
+  camera.position.set(0, 2.1, 7.6);
+
+  const controls = new THREE.OrbitControls(camera, renderer.domElement);
+  controls.target.set(0, 1.65, 0);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.06;
+  controls.enablePan = false;
+  controls.minDistance = 4;
+  controls.maxDistance = 12;
+  controls.minPolarAngle = 0.55;
+  controls.maxPolarAngle = 1.52;
+  controls.minAzimuthAngle = -1.1;
+  controls.maxAzimuthAngle = 1.1;
+  controls.update();
+
+  const maxAniso = renderer.capabilities.getMaxAnisotropy();
+
+  // ---------- Etiqueta (texturas de canvas) ----------
+  const LW = 2048, LH = 872, STRIP = 52;
+  const labelCanvas = document.createElement('canvas');
+  const pbrCanvas = document.createElement('canvas');
+  labelCanvas.width = pbrCanvas.width = LW;
+  labelCanvas.height = pbrCanvas.height = LH;
+
+  // roughness en el canal G, metalness en el B (convención de three.js)
+  const pbr = (r, m) => `rgb(0,${Math.round(r * 255)},${Math.round(m * 255)})`;
+
+  function rng(seed) {
+    return () => {
+      seed = (seed * 16807) % 2147483647;
+      return (seed - 1) / 2147483646;
+    };
+  }
+
+  function spaced(ctx, px) { if ('letterSpacing' in ctx) ctx.letterSpacing = px + 'px'; }
+
+  function drawLabel(ctx, mode) {
+    const c = mode === 'color';
+    ctx.save();
+    ctx.clearRect(0, 0, LW, LH);
+
+    // Base rosa oscuro
+    if (c) {
+      const g = ctx.createLinearGradient(0, 0, 0, LH);
+      g.addColorStop(0, '#5c0a2f');
+      g.addColorStop(0.16, '#8c1347');
+      g.addColorStop(0.5, '#a51c57');
+      g.addColorStop(0.84, '#881245');
+      g.addColorStop(1, '#540928');
+      ctx.fillStyle = g;
+    } else {
+      ctx.fillStyle = pbr(0.34, 0.55);
+    }
+    ctx.fillRect(0, 0, LW, LH);
+
+    // Ola que da la vuelta completa (ciclos enteros para que no haya costura)
+    const waveY = x => 600 + 46 * Math.sin((x / LW) * Math.PI * 2 * 3) + 18 * Math.sin((x / LW) * Math.PI * 2 * 5 + 1.2);
+    ctx.beginPath();
+    ctx.moveTo(0, LH);
+    for (let x = 0; x <= LW; x += 8) ctx.lineTo(x, waveY(x));
+    ctx.lineTo(LW, LH);
+    ctx.closePath();
+    ctx.fillStyle = c ? 'rgba(255, 128, 176, 0.16)' : pbr(0.3, 0.6);
+    ctx.fill();
+    ctx.beginPath();
+    for (let x = 0; x <= LW; x += 8) ctx.lineTo(x, waveY(x) - 14);
+    ctx.lineWidth = 7;
+    ctx.strokeStyle = c ? 'rgba(255, 170, 205, 0.85)' : pbr(0.22, 0.75);
+    ctx.stroke();
+
+    // Burbujas
+    if (c) {
+      const r = rng(7);
+      for (let i = 0; i < 90; i++) {
+        const x = r() * LW, y = STRIP + 30 + r() * (LH - 2 * STRIP - 60);
+        const rad = 5 + Math.pow(r(), 2) * 34;
+        if (x > 560 && x < 1490 && y > 270 && y < 590) continue;
+        if (x > 170 && x < 590 && y > 150 && y < 660) continue;
+        ctx.beginPath();
+        ctx.arc(x, y, rad, 0, Math.PI * 2);
+        ctx.lineWidth = 2.5;
+        ctx.strokeStyle = 'rgba(255, 225, 238, 0.32)';
+        ctx.stroke();
+        if (r() > 0.6) { ctx.fillStyle = 'rgba(255, 225, 238, 0.09)'; ctx.fill(); }
+        ctx.beginPath();
+        ctx.arc(x - rad * 0.35, y - rad * 0.35, Math.max(1.5, rad * 0.16), 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(255, 240, 246, 0.45)';
+        ctx.fill();
+      }
+    }
+
+    const paint = c ? '#fff4f8' : pbr(0.42, 0.04);
+
+    // Marca
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'alphabetic';
+    ctx.font = '800 132px Unbounded, "Arial Black", sans-serif';
+    spaced(ctx, 4);
+    if (c) { ctx.shadowColor = 'rgba(50, 0, 20, 0.5)'; ctx.shadowOffsetY = 7; }
+    ctx.fillStyle = paint;
+    ctx.fillText('BURBUJA', LW / 2, 470);
+    ctx.shadowColor = 'transparent';
+    ctx.font = '500 30px "DM Mono", monospace';
+    spaced(ctx, 9);
+    ctx.fillText('GASEOSA · SABOR FRAMBUESA', LW / 2, 530);
+
+    // Sello
+    ctx.font = '500 24px "DM Mono", monospace';
+    spaced(ctx, 5);
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = paint;
+    roundRect(ctx, LW / 2 - 120, 330 - 236, 240, 50, 25);
+    ctx.stroke();
+    ctx.fillText('0% AZÚCAR', LW / 2, 128);
+
+    // Panel nutricional (costado)
+    ctx.textAlign = 'left';
+    ctx.font = '500 22px "DM Mono", monospace';
+    spaced(ctx, 2);
+    ctx.fillText('INFORMACIÓN NUTRICIONAL', 210, 200);
+    ctx.fillRect(210, 216, 350, 3);
+    const rows = [
+      ['Porción', '355 ml'],
+      ['Valor energético', '4 kcal'],
+      ['Carbohidratos', '1 g'],
+      ['Azúcares', '0 g'],
+      ['Sodio', '28 mg'],
+    ];
+    ctx.font = '400 20px "DM Mono", monospace';
+    spaced(ctx, 1);
+    rows.forEach(([k, v], i) => {
+      const y = 254 + i * 38;
+      ctx.textAlign = 'left'; ctx.fillText(k, 210, y);
+      ctx.textAlign = 'right'; ctx.fillText(v, 560, y);
+      ctx.fillRect(210, y + 13, 350, 1);
+    });
+    ctx.textAlign = 'left';
+    ctx.font = '400 18px "DM Mono", monospace';
+    ctx.fillText('Agua carbonatada, jugo de', 210, 480);
+    ctx.fillText('frambuesa, ácido cítrico,', 210, 506);
+    ctx.fillText('aroma natural, sucralosa.', 210, 532);
+    ctx.font = '500 20px "DM Mono", monospace';
+    spaced(ctx, 4);
+    ctx.fillText('SERVIR BIEN FRÍA', 210, 600);
+
+    // Volumen + código de barras (otro costado)
+    ctx.textAlign = 'center';
+    ctx.font = '500 54px Unbounded, "Arial Black", sans-serif';
+    spaced(ctx, 1);
+    ctx.fillText('355 ml', 1720, 300);
+    ctx.fillStyle = c ? '#fff4f8' : pbr(0.5, 0);
+    roundRect(ctx, 1612, 360, 216, 150, 8);
+    ctx.fill();
+    ctx.fillStyle = c ? '#1d0912' : pbr(0.6, 0);
+    const br = rng(42);
+    for (let x = 1630; x < 1810;) {
+      const w = 2 + Math.floor(br() * 4);
+      if (br() > 0.42) ctx.fillRect(x, 376, w, 96);
+      x += w + 1 + Math.floor(br() * 3);
+    }
+    ctx.font = '400 15px "DM Mono", monospace';
+    spaced(ctx, 3);
+    ctx.fillText('7 791234 500129', 1720, 494);
+
+    // Franjas metálicas arriba y abajo
+    if (c) {
+      const sg = ctx.createLinearGradient(0, 0, 0, STRIP);
+      sg.addColorStop(0, '#b9bec6'); sg.addColorStop(0.5, '#e6e8eb'); sg.addColorStop(1, '#a9aeb6');
+      ctx.fillStyle = sg;
+      ctx.fillRect(0, 0, LW, STRIP);
+      ctx.save(); ctx.translate(0, LH); ctx.scale(1, -1); ctx.fillRect(0, 0, LW, STRIP); ctx.restore();
+    } else {
+      ctx.fillStyle = pbr(0.16, 1);
+      ctx.fillRect(0, 0, LW, STRIP);
+      ctx.fillRect(0, LH - STRIP, LW, STRIP);
+    }
+    ctx.fillStyle = c ? '#7a1040' : pbr(0.4, 0.35);
+    ctx.font = '500 21px "DM Mono", monospace';
+    spaced(ctx, 6);
+    ctx.textAlign = 'left';
+    const unit = 'BURBUJA · 355 ml · RECICLÁ ESTA LATA · ';
+    const uw = ctx.measureText(unit).width;
+    for (let x = 0; x < LW; x += uw) {
+      ctx.fillText(unit, x, STRIP / 2 + 8);
+      ctx.fillText(unit, x - uw / 2, LH - STRIP / 2 + 8);
+    }
+    ctx.restore();
+  }
+
+  function roundRect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+
+  const labelTex = new THREE.CanvasTexture(labelCanvas);
+  labelTex.encoding = THREE.sRGBEncoding;
+  labelTex.anisotropy = maxAniso;
+  const pbrTex = new THREE.CanvasTexture(pbrCanvas);
+  pbrTex.anisotropy = maxAniso;
+
+  function paintLabel() {
+    drawLabel(labelCanvas.getContext('2d'), 'color');
+    drawLabel(pbrCanvas.getContext('2d'), 'pbr');
+    labelTex.needsUpdate = true;
+    pbrTex.needsUpdate = true;
+  }
+  paintLabel();
+  if (document.fonts && document.fonts.load) {
+    Promise.race([
+      Promise.all([
+        document.fonts.load('800 132px Unbounded'),
+        document.fonts.load('500 54px Unbounded'),
+        document.fonts.load('500 30px "DM Mono"'),
+        document.fonts.load('400 20px "DM Mono"'),
+      ]),
+      new Promise(r => setTimeout(r, 4000)),
+    ]).then(paintLabel, paintLabel);
+  }
+
+  // ---------- Lata (medidas en mm, escala 0.02) ----------
+  const alu = new THREE.MeshStandardMaterial({ color: 0xd8dbe0, metalness: 1, roughness: 0.2, side: THREE.DoubleSide });
+  const aluLid = new THREE.MeshStandardMaterial({ color: 0xc6cad0, metalness: 1, roughness: 0.3, side: THREE.DoubleSide });
+  const bodyMat = new THREE.MeshPhysicalMaterial({
+    map: labelTex,
+    metalnessMap: pbrTex,
+    roughnessMap: pbrTex,
+    metalness: 1,
+    roughness: 1,
+    clearcoat: 0.7,
+    clearcoatRoughness: 0.08,
+  });
+
+  const lathe = (pts, mat) => new THREE.Mesh(
+    new THREE.LatheGeometry(pts.map(([x, y]) => new THREE.Vector2(x, y)), 160), mat);
+
+  const canModel = new THREE.Group();
+  canModel.scale.setScalar(0.02);
+  canModel.position.y = -60 * 0.02;
+
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(33, 33, 88, 180, 1, true), bodyMat);
+  body.position.y = 56;
+  body.rotation.y = Math.PI; // la marca mira a cámara
+  canModel.add(body);
+
+  canModel.add(lathe([
+    [0, 8], [10, 7.4], [17, 5.8], [21.5, 3.2], [23.5, 1], [24.5, 0], [26, 0.4],
+    [28, 2], [30.5, 5], [32.4, 9], [33, 12],
+  ], alu));
+
+  canModel.add(lathe([
+    [33, 100], [32.7, 103.5], [31.6, 107.5], [29.6, 111.5], [28, 114.6], [27.4, 116.6],
+    [27.6, 118.4], [27.1, 119.6], [26.2, 119.9], [25.5, 119.3], [25.2, 117.5], [24.8, 116.4],
+    [23.5, 116], [0, 116],
+  ], aluLid));
+
+  const groove = new THREE.Mesh(new THREE.TorusGeometry(21.6, 0.35, 8, 140), aluLid);
+  groove.rotation.x = Math.PI / 2;
+  groove.position.y = 116.05;
+  canModel.add(groove);
+
+  // Anilla
+  const tabShape = new THREE.Shape();
+  (function () {
+    const x0 = -6.5, x1 = 6.5, y0 = -5, y1 = 15, r = 5;
+    tabShape.moveTo(x0 + r, y0);
+    tabShape.lineTo(x1 - r, y0);
+    tabShape.quadraticCurveTo(x1, y0, x1, y0 + r);
+    tabShape.lineTo(x1, y1 - r);
+    tabShape.quadraticCurveTo(x1, y1, x1 - r, y1);
+    tabShape.lineTo(x0 + r, y1);
+    tabShape.quadraticCurveTo(x0, y1, x0, y1 - r);
+    tabShape.lineTo(x0, y0 + r);
+    tabShape.quadraticCurveTo(x0, y0, x0 + r, y0);
+    const hole = new THREE.Path();
+    hole.absellipse(0, 8.6, 4.2, 3.1, 0, Math.PI * 2, false, 0);
+    tabShape.holes.push(hole);
+  })();
+  const tab = new THREE.Mesh(new THREE.ExtrudeGeometry(tabShape, {
+    depth: 0.4, bevelEnabled: true, bevelThickness: 0.2, bevelSize: 0.25, bevelSegments: 2, curveSegments: 24,
+  }), alu);
+  tab.rotation.x = -Math.PI / 2;
+  tab.position.set(0, 116.35, -1);
+  canModel.add(tab);
+  const rivet = new THREE.Mesh(new THREE.CylinderGeometry(2.2, 2.6, 1.1, 28), aluLid);
+  rivet.position.set(0, 116.5, 0);
+  canModel.add(rivet);
+
+  canModel.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+
+  const canSpin = new THREE.Group();
+  canSpin.add(canModel);
+  const canPivot = new THREE.Group();
+  canPivot.add(canSpin);
+  canPivot.position.set(0, 1.7, 0);
+  scene.add(canPivot);
+
+  // ---------- Tela infinita (ciclorama con pliegues) ----------
+  const clothColor = new THREE.Color('#4a2436');
+  function weaveTexture() {
+    const c = document.createElement('canvas');
+    c.width = c.height = 64;
+    const x = c.getContext('2d');
+    x.fillStyle = '#808080';
+    x.fillRect(0, 0, 64, 64);
+    for (let i = 0; i < 16; i++) {
+      for (let j = 0; j < 16; j++) {
+        const over = (i + j) % 2 === 0;
+        x.fillStyle = over ? '#a6a6a6' : '#5a5a5a';
+        if (over) x.fillRect(i * 4, j * 4 + 1, 4, 2);
+        else x.fillRect(i * 4 + 1, j * 4, 2, 4);
+      }
+    }
+    const t = new THREE.CanvasTexture(c);
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.anisotropy = maxAniso;
+    return t;
+  }
+
+  function buildCloth() {
+    const NU = 260, NV = 320, W = 44;
+    const zFront = 9, wallZ = -6.2, R = 3.4, H = 16;
+    const F = zFront - (wallZ + R);
+    const A = Math.PI * R / 2;
+    const L = F + A + H;
+    const pos = new Float32Array((NU + 1) * (NV + 1) * 3);
+    const uv = new Float32Array((NU + 1) * (NV + 1) * 2);
+    let p = 0, q = 0;
+    for (let j = 0; j <= NV; j++) {
+      const s = (j / NV) * L;
+      let y, z, ny, nz;
+      if (s <= F) { y = 0; z = zFront - s; ny = 1; nz = 0; }
+      else if (s <= F + A) {
+        const th = (s - F) / R;
+        y = R - R * Math.cos(th); z = (wallZ + R) - R * Math.sin(th);
+        ny = Math.cos(th); nz = Math.sin(th);
+      } else { y = R + (s - F - A); z = wallZ; ny = 0; nz = 1; }
+
+      const wall = THREE.MathUtils.smoothstep(s, F - 4, F + A + 2);
+      const pool = Math.exp(-Math.pow(s - (F + A * 0.4), 2) / (2 * 2.2 * 2.2));
+      const amp = 0.04 + 0.34 * wall;
+
+      for (let i = 0; i <= NU; i++) {
+        const x = (i / NU - 0.5) * W;
+        const sway = 0.9 * Math.sin(s * 0.22 + x * 0.05);
+        let d = amp * (
+          0.55 * Math.sin(x * 1.25 + sway) +
+          0.3 * Math.sin(x * 2.6 + 1.7 + s * 0.12) +
+          0.15 * Math.sin(x * 5.3 + 0.6 * s)
+        );
+        d += pool * 0.22 * Math.sin(x * 1.6 + s * 1.9) * Math.sin(x * 0.7 - s * 1.1 + 0.4);
+        d += (1 - wall) * 0.05 * Math.sin(x * 0.9 + s * 1.3) * Math.cos(x * 0.4 - s * 0.7);
+        pos[p++] = x; pos[p++] = y + ny * d; pos[p++] = z + nz * d;
+        uv[q++] = x * 3.5; uv[q++] = s * 3.5;
+      }
+    }
+    const idx = [];
+    for (let j = 0; j < NV; j++) {
+      for (let i = 0; i < NU; i++) {
+        const a = j * (NU + 1) + i, b = a + 1, c = a + (NU + 1), d = c + 1;
+        idx.push(a, c, b, b, c, d);
+      }
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+    g.setIndex(idx);
+    g.computeVertexNormals();
+    return g;
+  }
+
+  const clothMat = new THREE.MeshPhysicalMaterial({
+    color: clothColor,
+    roughness: 0.82,
+    sheen: 1,
+    sheenRoughness: 0.42,
+    sheenColor: new THREE.Color('#ffb8d4'),
+    bumpMap: weaveTexture(),
+    bumpScale: 0.012,
+    envMapIntensity: 0.25,
+    side: THREE.DoubleSide,
+  });
+  const cloth = new THREE.Mesh(buildCloth(), clothMat);
+  cloth.receiveShadow = true;
+  scene.add(cloth);
+
+  // ---------- Luces ----------
+  const canTarget = new THREE.Object3D();
+  canTarget.position.set(0, 1.7, 0);
+  scene.add(canTarget);
+
+  function spot(angle, penumbra, shadow) {
+    const l = new THREE.SpotLight(0xffffff, 1, 0, angle, penumbra, 1);
+    l.target = canTarget;
+    if (shadow) {
+      l.castShadow = true;
+      l.shadow.mapSize.set(2048, 2048);
+      l.shadow.bias = -0.0004;
+      l.shadow.normalBias = 0.02;
+      l.shadow.camera.near = 1;
+      l.shadow.camera.far = 30;
+    }
+    scene.add(l);
+    return l;
+  }
+  const key = spot(0.42, 0.85, true);
+  const rimL = spot(0.35, 0.6, false);
+  const rimR = spot(0.35, 0.6, false);
+  const back = new THREE.SpotLight(0xffffff, 1, 0, 0.62, 1, 1);
+  back.position.set(0, 0.5, -1.6);
+  back.target.position.set(0, 3.4, -6.2);
+  scene.add(back, back.target);
+  const hemi = new THREE.HemisphereLight(0xffffff, 0x000000, 0.2);
+  scene.add(hemi);
+
+  // ---------- Entorno para los reflejos del aluminio ----------
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  let envRT = null;
+  function buildEnv(e) {
+    const s = new THREE.Scene();
+    s.add(new THREE.Mesh(new THREE.SphereGeometry(20, 32, 16),
+      new THREE.MeshBasicMaterial({ color: e.base, side: THREE.BackSide })));
+    const panel = (w, h, color, mult, at) => {
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h),
+        new THREE.MeshBasicMaterial({ color: new THREE.Color(color).multiplyScalar(mult), side: THREE.DoubleSide }));
+      m.position.set(...at);
+      m.lookAt(0, 0, 0);
+      s.add(m);
+    };
+    panel(2.2, 12, e.l, 4, [-7, 2, 3]);
+    panel(2.2, 12, e.r, 4, [7, 1, -2]);
+    panel(10, 4, e.top, 2.2, [0, 9, 1]);
+    panel(14, 1.2, e.l, 1.4, [0, -3, 7]);
+    const rt = pmrem.fromScene(s, 0.03);
+    if (envRT) envRT.dispose();
+    envRT = rt;
+    scene.environment = rt.texture;
+  }
+
+  // ---------- Partículas de polvo en el aire ----------
+  const dustTex = (() => {
+    const c = document.createElement('canvas');
+    c.width = c.height = 64;
+    const x = c.getContext('2d');
+    const g = x.createRadialGradient(32, 32, 0, 32, 32, 32);
+    g.addColorStop(0, 'rgba(255,255,255,1)');
+    g.addColorStop(0.35, 'rgba(255,255,255,0.35)');
+    g.addColorStop(1, 'rgba(255,255,255,0)');
+    x.fillStyle = g;
+    x.fillRect(0, 0, 64, 64);
+    return new THREE.CanvasTexture(c);
+  })();
+  const DUST = 420;
+  const dustPos = new Float32Array(DUST * 3);
+  const dustSpeed = new Float32Array(DUST);
+  const dr = rng(99);
+  for (let i = 0; i < DUST; i++) {
+    dustPos[i * 3] = (dr() - 0.5) * 9;
+    dustPos[i * 3 + 1] = dr() * 6;
+    dustPos[i * 3 + 2] = -4 + dr() * 7;
+    dustSpeed[i] = 0.04 + dr() * 0.12;
+  }
+  const dustGeo = new THREE.BufferGeometry();
+  dustGeo.setAttribute('position', new THREE.BufferAttribute(dustPos, 3));
+  const dustMat = new THREE.PointsMaterial({
+    size: 0.035, map: dustTex, transparent: true, depthWrite: false,
+    blending: THREE.AdditiveBlending, opacity: 0.55, color: 0xffc2da,
+  });
+  scene.add(new THREE.Points(dustGeo, dustMat));
+
+  // ---------- Puestas de luz ----------
+  const PRESETS = {
+    estudio: {
+      key: { color: '#ffe6d2', i: 2.3, pos: [-4.2, 6, 4.2] },
+      rimL: { color: '#ff4f9a', i: 3.2, pos: [-3.6, 3.2, -3] },
+      rimR: { color: '#d4e0ff', i: 2.4, pos: [3.6, 2.6, -2.6] },
+      back: { color: '#ff7fb0', i: 2.2 },
+      hemi: { sky: '#ffd8e8', ground: '#1a0a12', i: 0.22 },
+      fog: '#140a10', cloth: '#4a2436', dust: '#ffc2da', exposure: 1.1,
+      env: { base: '#160b11', l: '#fff1e6', r: '#ff8cba', top: '#ffe9f1' },
+    },
+    neon: {
+      key: { color: '#b9a8ff', i: 0.9, pos: [4, 5.5, 4] },
+      rimL: { color: '#ff2d95', i: 6, pos: [-3.4, 2.2, -2.4] },
+      rimR: { color: '#2fe3ff', i: 5.2, pos: [3.4, 2.8, -2.4] },
+      back: { color: '#7b2dff', i: 3.2 },
+      hemi: { sky: '#6f4bff', ground: '#0a0416', i: 0.14 },
+      fog: '#0b0614', cloth: '#2f1d40', dust: '#ff8ad6', exposure: 1.15,
+      env: { base: '#07040d', l: '#ff2d95', r: '#2fe3ff', top: '#5a3cff' },
+    },
+    atardecer: {
+      key: { color: '#ffae66', i: 2.8, pos: [-6.2, 2.3, 3.2] },
+      rimL: { color: '#ffd27a', i: 2.2, pos: [-3.2, 3.6, -3] },
+      rimR: { color: '#ff6a8a', i: 1.9, pos: [3.8, 2, -2] },
+      back: { color: '#ff8a4c', i: 2.1 },
+      hemi: { sky: '#ffcf9e', ground: '#1c0c08', i: 0.28 },
+      fog: '#1a0d0a', cloth: '#56272c', dust: '#ffcb8f', exposure: 1.05,
+      env: { base: '#1a0d08', l: '#ffb36b', r: '#ff6a8a', top: '#ffe0b8' },
+    },
+  };
+
+  function capture() {
+    const L = l => ({ color: l.color.clone(), i: l.intensity, pos: l.position.toArray() });
+    return {
+      key: L(key), rimL: L(rimL), rimR: L(rimR),
+      back: { color: back.color.clone(), i: back.intensity },
+      hemi: { sky: hemi.color.clone(), ground: hemi.groundColor.clone(), i: hemi.intensity },
+      fog: scene.fog.color.clone(), cloth: clothMat.color.clone(), dust: dustMat.color.clone(),
+      exposure: renderer.toneMappingExposure,
+    };
+  }
+  const C = v => (v instanceof THREE.Color ? v : new THREE.Color(v));
+  const lerp = (a, b, t) => a + (b - a) * t;
+  function apply(from, to, t) {
+    for (const [name, l] of [['key', key], ['rimL', rimL], ['rimR', rimR]]) {
+      l.color.lerpColors(C(from[name].color), C(to[name].color), t);
+      l.intensity = lerp(from[name].i, to[name].i, t);
+      l.position.set(...from[name].pos.map((v, k) => lerp(v, to[name].pos[k], t)));
+    }
+    back.color.lerpColors(C(from.back.color), C(to.back.color), t);
+    back.intensity = lerp(from.back.i, to.back.i, t);
+    hemi.color.lerpColors(C(from.hemi.sky), C(to.hemi.sky), t);
+    hemi.groundColor.lerpColors(C(from.hemi.ground), C(to.hemi.ground), t);
+    hemi.intensity = lerp(from.hemi.i, to.hemi.i, t);
+    scene.fog.color.lerpColors(C(from.fog), C(to.fog), t);
+    scene.background.copy(scene.fog.color);
+    clothMat.color.lerpColors(C(from.cloth), C(to.cloth), t);
+    dustMat.color.lerpColors(C(from.dust), C(to.dust), t);
+    renderer.toneMappingExposure = lerp(from.exposure, to.exposure, t);
+  }
+
+  let tween = null;
+  function setPreset(name, instant) {
+    const to = PRESETS[name];
+    buildEnv(to.env);
+    if (instant) { apply(to, to, 1); tween = null; }
+    else tween = { from: capture(), to, start: performance.now(), dur: 1200 };
+    document.querySelectorAll('[data-preset]').forEach(b =>
+      b.setAttribute('aria-pressed', String(b.dataset.preset === name)));
+    document.body.style.background = to.fog;
+  }
+  document.querySelectorAll('[data-preset]').forEach(b =>
+    b.addEventListener('click', () => setPreset(b.dataset.preset)));
+  setPreset('estudio', true);
+
+  // ---------- Giro / pausa ----------
+  const reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let spinning = !reduced;
+  const spinBtn = document.getElementById('spin');
+  function syncSpin() {
+    spinBtn.textContent = spinning ? 'Pausar giro' : 'Girar lata';
+    spinBtn.setAttribute('aria-pressed', String(!spinning));
+  }
+  spinBtn.addEventListener('click', () => { spinning = !spinning; syncSpin(); });
+  syncSpin();
+
+  // ---------- Loop ----------
+  function resize() {
+    const w = stage.clientWidth, h = stage.clientHeight;
+    renderer.setSize(w, h, false);
+    camera.aspect = w / h;
+    // en pantallas angostas, alejar un poco para que la lata entre entera
+    camera.fov = w / h < 0.75 ? 42 : 32;
+    camera.updateProjectionMatrix();
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  const clock = new THREE.Clock();
+  let t = 0, angle = 0.35;
+  function frame(now) {
+    const dt = Math.min(clock.getDelta(), 0.05);
+    if (spinning) { t += dt; angle += dt * 0.35; }
+    canSpin.rotation.y = angle;
+    canPivot.position.y = 1.7 + 0.09 * Math.sin(t * 0.9);
+    canPivot.rotation.z = 0.16 + 0.035 * Math.sin(t * 0.6);
+    canPivot.rotation.x = 0.06 * Math.sin(t * 0.45 + 1);
+    canTarget.position.y = canPivot.position.y;
+
+    if (tween) {
+      const k = Math.min(1, (now - tween.start) / tween.dur);
+      apply(tween.from, tween.to, k * k * (3 - 2 * k));
+      if (k >= 1) tween = null;
+    }
+
+    if (!reduced) {
+      const a = dustGeo.attributes.position.array;
+      for (let i = 0; i < DUST; i++) {
+        a[i * 3 + 1] += dustSpeed[i] * dt;
+        a[i * 3] += Math.sin(now * 0.0003 + i) * 0.0008;
+        if (a[i * 3 + 1] > 6) a[i * 3 + 1] = 0;
+      }
+      dustGeo.attributes.position.needsUpdate = true;
+    }
+
+    controls.update();
+    renderer.render(scene, camera);
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})();
+</script>

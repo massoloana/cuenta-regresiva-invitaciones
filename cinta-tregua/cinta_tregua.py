@@ -14,7 +14,8 @@ Qué arma:
   - Una cinta azul enrollada en hélice, en diagonal, con "TREGUA — ESTUDIO →" y un
     anillo de puntos en blanco, en geometría real (no es una imagen).
   - La cinta "corre": un movimiento de tornillo hace que la hélice quede en su lugar
-    mientras el texto avanza. El loop es perfecto (frame 1 = frame final + 1).
+    mientras el texto avanza como un cartel corredizo. El loop es perfecto
+    (frame 1 = frame final + 1): 3 vueltas de 8 s = 24 s.
 
 Todo lo ajustable está en PARÁMETROS.
 """
@@ -36,7 +37,8 @@ COLOR_TEXTO = "#FFFFFF"   # blanco
 ANCHO = 1.0               # ancho de la cinta
 RADIO = 2.3               # radio de la hélice
 PASO = 2.7                # avance por vuelta (tiene que ser mayor que ANCHO para no chocarse)
-VUELTAS = 12              # vueltas totales (las puntas quedan fuera de cuadro)
+VUELTAS = 15              # vueltas totales (las puntas quedan fuera de cuadro todo el loop)
+VUELTAS_LOOP = 3          # el loop dura estas vueltas; así el frente no muestra siempre la misma palabra
 ALTO_TEXTO = 0.62         # tamaño del texto (cuerpo de la fuente)
 ESPACIO_MIN = 0.45        # separación mínima entre repeticiones
 
@@ -77,6 +79,9 @@ def material(nombre, color_hex, rugosidad):
 
 # ---------- Hélice: eje X local; s = largo recorrido sobre la cinta ----------
 LARGO_VUELTA = math.hypot(2 * math.pi * RADIO, PASO)
+# durante el loop la cinta avanza VUELTAS_LOOP vueltas; se arma corrida hacia atrás la mitad
+# para que ninguna punta entre en cuadro
+CENTRO_S = -LARGO_VUELTA * VUELTAS_LOOP / 2
 
 
 def marco(s):
@@ -142,9 +147,10 @@ def armar_tramo():
                             vec=Vector((cx + math.cos(a) * r_anillo, math.sin(a) * r_anillo, 0)))
     contenido = cx + r_anillo + r_punto
 
-    # cantidad entera de tramos por vuelta, así el loop de la animación es perfecto
-    por_vuelta = max(1, int(LARGO_VUELTA // (contenido + ESPACIO_MIN)))
-    largo_tramo = LARGO_VUELTA / por_vuelta
+    # cantidad entera de tramos por loop, así la animación empalma perfecto
+    largo_loop = LARGO_VUELTA * VUELTAS_LOOP
+    por_loop = max(1, int(largo_loop // (contenido + ESPACIO_MIN)))
+    largo_tramo = largo_loop / por_loop
 
     # cortes cada 4 cm para que las letras se curven con la cinta en vez de atravesarla
     paso_corte = 0.04
@@ -153,6 +159,11 @@ def armar_tramo():
         geom = bm.verts[:] + bm.edges[:] + bm.faces[:]
         bmesh.ops.bisect_plane(bm, geom=geom, plane_co=(k, 0, 0), plane_no=(1, 0, 0))
         k += paso_corte
+
+    # girado 180° en el plano: en la cara que mira a cámara el texto se lee hacia abajo a la derecha
+    for v in bm.verts:
+        v.co.x = largo_tramo - v.co.x
+        v.co.y = -v.co.y
     return bm, largo_tramo
 
 
@@ -165,7 +176,7 @@ def crear_texto(padre, mat):
     total = LARGO_VUELTA * VUELTAS
     n = int(math.ceil(total / largo_tramo))
     bm = bmesh.new()
-    inicio = -total / 2
+    inicio = CENTRO_S - total / 2
     for i in range(n):
         bm.from_mesh(me_tramo)  # agrega una copia nueva al final de la lista de vértices
         bm.verts.ensure_lookup_table()
@@ -192,7 +203,7 @@ def crear_cinta(padre, mat):
     bm = bmesh.new()
     filas = []
     for i in range(pasos + 1):
-        s = -total / 2 + total * i / pasos
+        s = CENTRO_S - total / 2 + total * i / pasos
         filas.append([bm.verts.new((s, y, 0.0)) for y in (-ANCHO / 2, 0.0, ANCHO / 2)])
     for a, b in zip(filas, filas[1:]):
         for j in range(2):
@@ -201,7 +212,7 @@ def crear_cinta(padre, mat):
     bm.normal_update()
     # que las normales miren hacia afuera de la hélice (donde va el texto)
     bm.faces.ensure_lookup_table()
-    _, _, _, n = marco(-total / 2)
+    _, _, _, n = marco(CENTRO_S - total / 2)
     if bm.faces[0].normal.dot(n) < 0:
         bmesh.ops.reverse_faces(bm, faces=bm.faces[:])
     me = bpy.data.meshes.new("Cinta")
@@ -247,7 +258,7 @@ def configurar_render():
     escena.render.resolution_x, escena.render.resolution_y = RESOLUCION
     escena.render.fps = FPS
     escena.frame_start = 1
-    escena.frame_end = FRAMES_POR_VUELTA
+    escena.frame_end = FRAMES_POR_VUELTA * VUELTAS_LOOP
     try:
         escena.render.engine = MOTOR
     except TypeError:
@@ -292,10 +303,11 @@ def main():
         tornillo.location = (0, 0, 0)
         tornillo.keyframe_insert("rotation_euler", index=0, frame=1)
         tornillo.keyframe_insert("location", index=0, frame=1)
-        tornillo.rotation_euler[0] = 2 * math.pi
-        tornillo.location[0] = PASO
-        tornillo.keyframe_insert("rotation_euler", index=0, frame=FRAMES_POR_VUELTA + 1)
-        tornillo.keyframe_insert("location", index=0, frame=FRAMES_POR_VUELTA + 1)
+        fin = FRAMES_POR_VUELTA * VUELTAS_LOOP + 1
+        tornillo.rotation_euler[0] = 2 * math.pi * VUELTAS_LOOP
+        tornillo.location[0] = PASO * VUELTAS_LOOP
+        tornillo.keyframe_insert("rotation_euler", index=0, frame=fin)
+        tornillo.keyframe_insert("location", index=0, frame=fin)
     finally:
         prefs.keyframe_new_interpolation_type = interp_original
 

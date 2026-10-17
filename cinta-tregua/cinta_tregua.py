@@ -10,9 +10,12 @@ Cómo usarlo:
      (guardá el .blend antes) o en la carpeta temporal si no lo guardaste.
 
 Qué arma:
-  - Fondo naranja liso (exacto en cámara; la luz que rebota es neutra para no teñir la cinta).
-  - Una cinta azul enrollada en hélice, en diagonal, con "TREGUA — ESTUDIO →" y un
-    anillo de puntos en blanco, en geometría real (no es una imagen).
+  - Fondo infinito naranja: un papel de estudio lejano (piso que sube en curva a la pared),
+    con un círculo de luz detrás de la cinta que se apaga hacia los bordes.
+  - Una cinta azul de cartulina (mate, con fibra de papel y canto claro) enrollada en hélice,
+    en diagonal, con "TREGUA — ESTUDIO →" y un anillo de puntos impresos en blanco.
+  - Luz de tarde: principal cálida y rasante desde la izquierda, contra fría que marca
+    los cantos, y profundidad de campo suave.
   - La cinta "corre": un movimiento de tornillo hace que la hélice quede en su lugar
     mientras el texto avanza como un cartel corredizo. El loop es perfecto
     (frame 1 = frame final + 1): 3 vueltas de 8 s = 24 s.
@@ -33,6 +36,8 @@ FONT_PATH = ""            # ruta a un .ttf/.otf; vacío = tipografía por defect
 COLOR_FONDO = "#FF6B1F"   # naranja
 COLOR_CINTA = "#1F3FE0"   # azul
 COLOR_TEXTO = "#FFFFFF"   # blanco
+COLOR_CANTO = "#EDE7DC"   # el alma clara de la cartulina que se ve en el corte
+GROSOR = 0.018            # grosor de la cartulina
 
 ANCHO = 1.0               # ancho de la cinta
 RADIO = 2.3               # radio de la hélice
@@ -67,6 +72,14 @@ def limpiar_escena():
                 coleccion.remove(bloque)
 
 
+def entrada(nodo, *nombres):
+    """Primera entrada que exista (los nombres cambian entre Blender 3.x y 4.x)."""
+    for n in nombres:
+        if n in nodo.inputs:
+            return nodo.inputs[n]
+    return None
+
+
 def material(nombre, color_hex, rugosidad):
     mat = bpy.data.materials.new(nombre)
     mat.use_nodes = True
@@ -74,6 +87,56 @@ def material(nombre, color_hex, rugosidad):
     bsdf.inputs["Base Color"].default_value = hex_a_lineal(color_hex)
     bsdf.inputs["Roughness"].default_value = rugosidad
     mat.diffuse_color = hex_a_lineal(color_hex)  # color en el viewport sólido
+    return mat
+
+
+def material_cartulina(nombre, color_hex, rugosidad=0.9, fibra=1.0):
+    """Papel grueso mate: fibra fina en relieve, leve variación de tono y un brillo de terciopelo."""
+    mat = material(nombre, color_hex, rugosidad)
+    nt = mat.node_tree
+    bsdf = nt.nodes.get("Principled BSDF")
+    spec = entrada(bsdf, "Specular IOR Level", "Specular")
+    if spec:
+        spec.default_value = 0.25
+    sheen = entrada(bsdf, "Sheen Weight", "Sheen")
+    if sheen:
+        sheen.default_value = 0.35
+
+    coord = nt.nodes.new("ShaderNodeTexCoord")
+    # fibra: ruido fino, un poco estirado en una dirección como el grano del papel
+    mapeo = nt.nodes.new("ShaderNodeMapping")
+    mapeo.inputs["Scale"].default_value = (1.0, 3.0, 1.0)
+    fibra_n = nt.nodes.new("ShaderNodeTexNoise")
+    fibra_n.inputs["Scale"].default_value = 70.0
+    fibra_n.inputs["Detail"].default_value = 10.0
+    poro = nt.nodes.new("ShaderNodeTexNoise")
+    poro.inputs["Scale"].default_value = 220.0
+    poro.inputs["Detail"].default_value = 2.0
+    suma = nt.nodes.new("ShaderNodeMath")
+    suma.operation = "ADD"
+    relieve = nt.nodes.new("ShaderNodeBump")
+    relieve.inputs["Strength"].default_value = 0.22 * fibra
+    relieve.inputs["Distance"].default_value = 0.006
+    nt.links.new(coord.outputs["Object"], mapeo.inputs["Vector"])
+    nt.links.new(mapeo.outputs["Vector"], fibra_n.inputs["Vector"])
+    nt.links.new(coord.outputs["Object"], poro.inputs["Vector"])
+    nt.links.new(fibra_n.outputs["Fac"], suma.inputs[0])
+    nt.links.new(poro.outputs["Fac"], suma.inputs[1])
+    nt.links.new(suma.outputs["Value"], relieve.inputs["Height"])
+    nt.links.new(relieve.outputs["Normal"], bsdf.inputs["Normal"])
+
+    # manchado muy sutil del pigmento
+    mancha = nt.nodes.new("ShaderNodeTexNoise")
+    mancha.inputs["Scale"].default_value = 14.0
+    tono = nt.nodes.new("ShaderNodeHueSaturation")
+    tono.inputs["Color"].default_value = hex_a_lineal(color_hex)
+    rampa = nt.nodes.new("ShaderNodeMapRange")
+    rampa.inputs["To Min"].default_value = 0.93
+    rampa.inputs["To Max"].default_value = 1.05
+    nt.links.new(coord.outputs["Object"], mancha.inputs["Vector"])
+    nt.links.new(mancha.outputs["Fac"], rampa.inputs["Value"])
+    nt.links.new(rampa.outputs["Result"], tono.inputs["Value"])
+    nt.links.new(tono.outputs["Color"], bsdf.inputs["Base Color"])
     return mat
 
 
@@ -184,7 +247,7 @@ def crear_texto(padre, mat):
         bmesh.ops.translate(bm, verts=nuevos, vec=Vector((inicio + i * largo_tramo, 0, 0)))
     bpy.data.meshes.remove(me_tramo)
 
-    enrollar(bm, separacion=0.004)
+    enrollar(bm, separacion=0.0015)  # tinta impresa, casi pegada al papel
     me = bpy.data.meshes.new("Texto")
     bm.to_mesh(me)
     bm.free()
@@ -197,7 +260,7 @@ def crear_texto(padre, mat):
     return ob
 
 
-def crear_cinta(padre, mat):
+def crear_cinta(padre, mat, mat_canto):
     total = LARGO_VUELTA * VUELTAS
     pasos = int(total / 0.04)
     bm = bmesh.new()
@@ -221,12 +284,42 @@ def crear_cinta(padre, mat):
     for p in me.polygons:
         p.use_smooth = True
     me.materials.append(mat)
+    me.materials.append(mat_canto)
     ob = bpy.data.objects.new("Cinta", me)
     bpy.context.scene.collection.objects.link(ob)
     ob.parent = padre
     sol = ob.modifiers.new("Grosor", "SOLIDIFY")
-    sol.thickness = 0.012
+    sol.thickness = GROSOR
     sol.offset = -1.0  # crece hacia adentro: la cara impresa queda donde está el texto
+    sol.material_offset_rim = 1  # el corte muestra el alma clara de la cartulina
+    return ob
+
+
+def crear_ciclorama():
+    """Papel infinito de estudio, lejos de la cinta: piso que sube en curva hasta la pared."""
+    piso_z, pared_y, radio, ancho = -6.5, 16.0, 9.0, 160.0
+    perfil = [(y, piso_z) for y in (-40.0, -20.0, 0.0, pared_y - radio)]
+    for i in range(1, 32):
+        a = i / 32 * math.pi / 2
+        perfil.append((pared_y - radio + radio * math.sin(a), piso_z + radio - radio * math.cos(a)))
+    perfil += [(pared_y, piso_z + radio + h) for h in (0.0, 20.0, 60.0)]
+    bm = bmesh.new()
+    filas = [[bm.verts.new((x, y, z)) for x in (-ancho / 2, 0.0, ancho / 2)] for y, z in perfil]
+    for a, b in zip(filas, filas[1:]):
+        for j in range(2):
+            bm.faces.new((a[j], a[j + 1], b[j + 1], b[j]))
+    bm.normal_update()
+    bm.faces.ensure_lookup_table()
+    if bm.faces[0].normal.z < 0:  # que mire hacia arriba / hacia la cámara
+        bmesh.ops.reverse_faces(bm, faces=bm.faces[:])
+    me = bpy.data.meshes.new("Ciclorama")
+    bm.to_mesh(me)
+    bm.free()
+    for p in me.polygons:
+        p.use_smooth = True
+    me.materials.append(material_cartulina("Papel de fondo", COLOR_FONDO, 0.95, fibra=0.4))
+    ob = bpy.data.objects.new("Ciclorama", me)
+    bpy.context.scene.collection.objects.link(ob)
     return ob
 
 
@@ -245,7 +338,7 @@ def configurar_mundo():
     fondo_cam.inputs["Strength"].default_value = 1.0
     # la luz ambiente es casi neutra (apenas cálida) para que el azul no se ensucie
     fondo_luz.inputs["Color"].default_value = (1.0, 0.93, 0.88, 1.0)
-    fondo_luz.inputs["Strength"].default_value = 0.55
+    fondo_luz.inputs["Strength"].default_value = 0.22  # relleno bajo: manda la luz de tarde
     nt.links.new(camino.outputs["Is Camera Ray"], mezcla.inputs["Fac"])
     nt.links.new(fondo_luz.outputs["Background"], mezcla.inputs[1])
     nt.links.new(fondo_cam.outputs["Background"], mezcla.inputs[2])
@@ -311,28 +404,44 @@ def main():
     finally:
         prefs.keyframe_new_interpolation_type = interp_original
 
-    mat_cinta = material("Cinta azul", COLOR_CINTA, 0.55)
-    mat_texto = material("Texto blanco", COLOR_TEXTO, 0.5)
-    crear_cinta(tornillo, mat_cinta)
+    mat_cinta = material_cartulina("Cartulina azul", COLOR_CINTA, 0.88)
+    mat_canto = material_cartulina("Canto de cartulina", COLOR_CANTO, 0.92, fibra=0.6)
+    mat_texto = material_cartulina("Tinta blanca", COLOR_TEXTO, 0.8)
+    crear_cinta(tornillo, mat_cinta, mat_canto)
     crear_texto(tornillo, mat_texto)
+    crear_ciclorama()
 
-    # Cámara de frente
+    # Cámara de frente, apenas desde arriba para que se vea el piso perderse en la pared
     cam_data = bpy.data.cameras.new("Camara")
     cam_data.lens = 50
+    cam_data.dof.use_dof = True
+    cam_data.dof.focus_distance = 19.2
+    cam_data.dof.aperture_fstop = 3.5
     cam = bpy.data.objects.new("Camara", cam_data)
     escena.collection.objects.link(cam)
-    cam.location = (0, -19, 0)
-    cam.rotation_euler = (math.pi / 2, 0, 0)
+    cam.location = (0, -19, 2.2)
+    cam.rotation_euler = (Vector((0, 0, 0)) - cam.location).to_track_quat("-Z", "Y").to_euler()
     escena.camera = cam
 
-    # Luz principal suave, arriba a la izquierda y de frente
-    luz_data = bpy.data.lights.new("Softbox", "AREA")
-    luz_data.energy = 2500
-    luz_data.size = 8
-    luz = bpy.data.objects.new("Softbox", luz_data)
-    escena.collection.objects.link(luz)
-    luz.location = (-7, -12, 8)
-    luz.rotation_euler = (Vector((0, 0, 0)) - luz.location).to_track_quat("-Z", "Y").to_euler()
+    def luz(nombre, tipo, energia, color, pos, mira, **extra):
+        datos = bpy.data.lights.new(nombre, tipo)
+        datos.energy = energia
+        datos.color = color
+        for k, v in extra.items():
+            setattr(datos, k, v)
+        ob = bpy.data.objects.new(nombre, datos)
+        escena.collection.objects.link(ob)
+        ob.location = pos
+        ob.rotation_euler = (Vector(mira) - Vector(pos)).to_track_quat("-Z", "Y").to_euler()
+        return ob
+
+    # Luz de tarde: principal cálida y rasante desde la izquierda; deja sombras largas en el fondo
+    luz("Sol de tarde", "AREA", 3200, (1.0, 0.8, 0.6), (-14, -7, 7), (0, 0, 0), size=2.5)
+    # Contra fría desde atrás a la derecha: dibuja los cantos de la cartulina
+    luz("Contra", "AREA", 1400, (0.75, 0.85, 1.0), (9, 7, 6), (0, 0, 0), size=1.5)
+    # Círculo de luz en el papel de fondo, detrás de la cinta, que se apaga hacia los bordes
+    luz("Halo de fondo", "SPOT", 9000, (1.0, 0.9, 0.8), (0, 2, 3), (0, 16, 2),
+        spot_size=math.radians(70), spot_blend=1.0)
 
     configurar_mundo()
     configurar_render()

@@ -16,6 +16,8 @@ Qué arma:
     en diagonal, con "TREGUA — ESTUDIO →" y un anillo de puntos impresos en blanco.
   - Luz de tarde: principal cálida y rasante desde la izquierda, contra fría que marca
     los cantos, y profundidad de campo suave.
+  - Movimiento natural: la cinta acelera y frena, se ondula como si la moviera el aire
+    y toda la espiral se mece apenas. Todo sigue empalmando en loop.
   - La cinta "corre": un movimiento de tornillo hace que la hélice quede en su lugar
     mientras el texto avanza como un cartel corredizo. El loop es perfecto
     (frame 1 = frame final + 1): 3 vueltas de 8 s = 24 s.
@@ -27,10 +29,11 @@ import math
 
 import bmesh
 import bpy
-from mathutils import Vector
+from mathutils import Euler, Vector
 
 # ------------------------------------------------------------------ PARÁMETROS
 TEXTO = "TREGUA — ESTUDIO →"
+DIVISIONES_ANCHO = 16     # la cinta y el texto se cortan en esta grilla para ondularse juntos
 FONT_PATH = ""            # ruta a un .ttf/.otf; vacío = tipografía por defecto de Blender
 
 COLOR_FONDO = "#FF6B1F"   # naranja
@@ -52,6 +55,13 @@ FRAMES_POR_VUELTA = 240   # 8 s por vuelta: más alto = corre más lento
 RESOLUCION = (1920, 1080)
 MOTOR = "CYCLES"          # "CYCLES" (más lindo) o el nombre de EEVEE de tu versión
 MUESTRAS = 96
+
+# Movimiento natural
+VARIACION_VELOCIDAD = 0.45  # 0 = velocidad constante; 0.45 = acelera y frena ±45 %
+PULSOS_VELOCIDAD = 3        # cuántas veces acelera y frena en cada loop
+VIENTO = 0.55               # cuánto se ondula la cinta en el aire (0 = rígida)
+ESCALA_VIENTO = 3.2         # tamaño de las ondulaciones: más grande = curvas más amplias
+BALANCEO = 2.5              # grados que se mece toda la espiral
 # -----------------------------------------------------------------------------
 
 
@@ -66,7 +76,7 @@ def limpiar_escena():
     for ob in list(bpy.data.objects):
         bpy.data.objects.remove(ob, do_unlink=True)
     for coleccion in (bpy.data.meshes, bpy.data.curves, bpy.data.materials,
-                      bpy.data.cameras, bpy.data.lights):
+                      bpy.data.cameras, bpy.data.lights, bpy.data.textures):
         for bloque in list(coleccion):
             if bloque.users == 0:
                 coleccion.remove(bloque)
@@ -90,6 +100,13 @@ def material(nombre, color_hex, rugosidad):
     return mat
 
 
+def ajustar_escala(mat, me):
+    """Pone en el material el tamaño real del objeto (ver material_cartulina)."""
+    xs, ys, zs = zip(*(v.co for v in me.vertices))
+    dims = (max(xs) - min(xs) or 1.0, max(ys) - min(ys) or 1.0, max(zs) - min(zs) or 1.0)
+    mat.node_tree.nodes["EscalaObjeto"].inputs[1].default_value = dims
+
+
 def material_cartulina(nombre, color_hex, rugosidad=0.9, fibra=1.0):
     """Papel grueso mate: fibra fina en relieve, leve variación de tono y un brillo de terciopelo."""
     mat = material(nombre, color_hex, rugosidad)
@@ -103,6 +120,13 @@ def material_cartulina(nombre, color_hex, rugosidad=0.9, fibra=1.0):
         sheen.default_value = 0.35
 
     coord = nt.nodes.new("ShaderNodeTexCoord")
+    # coordenadas "Generated" (de la malla sin deformar) llevadas a metros con el tamaño del
+    # objeto: así la fibra queda pegada al papel aunque la cinta se ondule
+    escala = nt.nodes.new("ShaderNodeVectorMath")
+    escala.name = "EscalaObjeto"
+    escala.operation = "MULTIPLY"
+    escala.inputs[1].default_value = (1.0, 1.0, 1.0)
+    nt.links.new(coord.outputs["Generated"], escala.inputs[0])
     # fibra: ruido fino, un poco estirado en una dirección como el grano del papel
     mapeo = nt.nodes.new("ShaderNodeMapping")
     mapeo.inputs["Scale"].default_value = (1.0, 3.0, 1.0)
@@ -117,9 +141,9 @@ def material_cartulina(nombre, color_hex, rugosidad=0.9, fibra=1.0):
     relieve = nt.nodes.new("ShaderNodeBump")
     relieve.inputs["Strength"].default_value = 0.22 * fibra
     relieve.inputs["Distance"].default_value = 0.006
-    nt.links.new(coord.outputs["Object"], mapeo.inputs["Vector"])
+    nt.links.new(escala.outputs["Vector"], mapeo.inputs["Vector"])
     nt.links.new(mapeo.outputs["Vector"], fibra_n.inputs["Vector"])
-    nt.links.new(coord.outputs["Object"], poro.inputs["Vector"])
+    nt.links.new(escala.outputs["Vector"], poro.inputs["Vector"])
     nt.links.new(fibra_n.outputs["Fac"], suma.inputs[0])
     nt.links.new(poro.outputs["Fac"], suma.inputs[1])
     nt.links.new(suma.outputs["Value"], relieve.inputs["Height"])
@@ -133,7 +157,7 @@ def material_cartulina(nombre, color_hex, rugosidad=0.9, fibra=1.0):
     rampa = nt.nodes.new("ShaderNodeMapRange")
     rampa.inputs["To Min"].default_value = 0.93
     rampa.inputs["To Max"].default_value = 1.05
-    nt.links.new(coord.outputs["Object"], mancha.inputs["Vector"])
+    nt.links.new(escala.outputs["Vector"], mancha.inputs["Vector"])
     nt.links.new(mancha.outputs["Fac"], rampa.inputs["Value"])
     nt.links.new(rampa.outputs["Result"], tono.inputs["Value"])
     nt.links.new(tono.outputs["Color"], bsdf.inputs["Base Color"])
@@ -215,13 +239,18 @@ def armar_tramo():
     por_loop = max(1, int(largo_loop // (contenido + ESPACIO_MIN)))
     largo_tramo = largo_loop / por_loop
 
-    # cortes cada 4 cm para que las letras se curven con la cinta en vez de atravesarla
+    # cortes cada 4 cm a lo largo y en la misma grilla que la cinta a lo ancho, para que las
+    # letras se curven y se ondulen junto con la cinta en vez de atravesarla
     paso_corte = 0.04
     k = paso_corte
     while k < largo_tramo:
         geom = bm.verts[:] + bm.edges[:] + bm.faces[:]
         bmesh.ops.bisect_plane(bm, geom=geom, plane_co=(k, 0, 0), plane_no=(1, 0, 0))
         k += paso_corte
+    for j in range(1, DIVISIONES_ANCHO):
+        y = -ANCHO / 2 + ANCHO * j / DIVISIONES_ANCHO
+        geom = bm.verts[:] + bm.edges[:] + bm.faces[:]
+        bmesh.ops.bisect_plane(bm, geom=geom, plane_co=(0, y, 0), plane_no=(0, 1, 0))
 
     # girado 180° en el plano: en la cara que mira a cámara el texto se lee hacia abajo a la derecha
     for v in bm.verts:
@@ -247,7 +276,7 @@ def crear_texto(padre, mat):
         bmesh.ops.translate(bm, verts=nuevos, vec=Vector((inicio + i * largo_tramo, 0, 0)))
     bpy.data.meshes.remove(me_tramo)
 
-    enrollar(bm, separacion=0.0015)  # tinta impresa, casi pegada al papel
+    enrollar(bm, separacion=0.004)  # tinta impresa, casi pegada al papel
     me = bpy.data.meshes.new("Texto")
     bm.to_mesh(me)
     bm.free()
@@ -267,9 +296,10 @@ def crear_cinta(padre, mat, mat_canto):
     filas = []
     for i in range(pasos + 1):
         s = CENTRO_S - total / 2 + total * i / pasos
-        filas.append([bm.verts.new((s, y, 0.0)) for y in (-ANCHO / 2, 0.0, ANCHO / 2)])
+        filas.append([bm.verts.new((s, -ANCHO / 2 + ANCHO * j / DIVISIONES_ANCHO, 0.0))
+                      for j in range(DIVISIONES_ANCHO + 1)])
     for a, b in zip(filas, filas[1:]):
-        for j in range(2):
+        for j in range(DIVISIONES_ANCHO):
             bm.faces.new((a[j], b[j], b[j + 1], a[j + 1]))
     enrollar(bm)
     bm.normal_update()
@@ -317,7 +347,9 @@ def crear_ciclorama():
     bm.free()
     for p in me.polygons:
         p.use_smooth = True
-    me.materials.append(material_cartulina("Papel de fondo", COLOR_FONDO, 0.95, fibra=0.4))
+    papel = material_cartulina("Papel de fondo", COLOR_FONDO, 0.95, fibra=0.4)
+    me.materials.append(papel)
+    ajustar_escala(papel, me)
     ob = bpy.data.objects.new("Ciclorama", me)
     bpy.context.scene.collection.objects.link(ob)
     return ob
@@ -387,28 +419,65 @@ def main():
     tornillo = bpy.data.objects.new("Tornillo", None)
     escena.collection.objects.link(tornillo)
     tornillo.parent = orient
-    # claves lineales (velocidad constante); se restaura la preferencia del usuario al final
+    # Viento: un campo de ruido suave que viaja en círculo; deforma igual cinta y texto
+    viento = bpy.data.objects.new("Viento", None)
+    escena.collection.objects.link(viento)
+
+    # Se hornea una clave por frame (lineales entre sí); todo vuelve al inicio en el último
+    # frame, así el loop empalma. Se restaura la preferencia del usuario al final.
+    total_frames = FRAMES_POR_VUELTA * VUELTAS_LOOP
+    base = orient.rotation_quaternion.copy()
     prefs = bpy.context.preferences.edit
     interp_original = prefs.keyframe_new_interpolation_type
     prefs.keyframe_new_interpolation_type = "LINEAR"
     try:
-        tornillo.rotation_euler = (0, 0, 0)
-        tornillo.location = (0, 0, 0)
-        tornillo.keyframe_insert("rotation_euler", index=0, frame=1)
-        tornillo.keyframe_insert("location", index=0, frame=1)
-        fin = FRAMES_POR_VUELTA * VUELTAS_LOOP + 1
-        tornillo.rotation_euler[0] = 2 * math.pi * VUELTAS_LOOP
-        tornillo.location[0] = PASO * VUELTAS_LOOP
-        tornillo.keyframe_insert("rotation_euler", index=0, frame=fin)
-        tornillo.keyframe_insert("location", index=0, frame=fin)
+        for f in range(total_frames + 1):
+            u = f / total_frames
+            # avance con aceleraciones y frenadas; siempre hacia adelante y periódico
+            n = PULSOS_VELOCIDAD
+            avance = VUELTAS_LOOP * (u + VARIACION_VELOCIDAD * math.sin(2 * math.pi * n * u) / (2 * math.pi * n))
+            tornillo.rotation_euler[0] = 2 * math.pi * avance
+            tornillo.location[0] = PASO * avance
+            tornillo.keyframe_insert("rotation_euler", index=0, frame=f + 1)
+            tornillo.keyframe_insert("location", index=0, frame=f + 1)
+
+            a = 2 * math.pi * u
+            viento.location = (1.8 * math.cos(a), 1.8 * math.sin(a), 0.9 * math.sin(2 * a))
+            viento.keyframe_insert("location", frame=f + 1)
+
+            balanceo = Euler((math.radians(BALANCEO) * math.sin(2 * a + 0.6),
+                              math.radians(BALANCEO * 0.6) * math.sin(a),
+                              math.radians(BALANCEO * 0.8) * math.sin(3 * a + 1.3)))
+            orient.rotation_quaternion = base @ balanceo.to_quaternion()
+            orient.keyframe_insert("rotation_quaternion", frame=f + 1)
     finally:
         prefs.keyframe_new_interpolation_type = interp_original
+
+    textura_viento = bpy.data.textures.new("Viento", "CLOUDS")
+    textura_viento.noise_scale = ESCALA_VIENTO
+    textura_viento.noise_depth = 1
+    textura_viento.cloud_type = "COLOR"
+
+    def ondular(ob):
+        mod = ob.modifiers.new("Viento", "DISPLACE")
+        mod.texture = textura_viento
+        mod.texture_coords = "OBJECT"
+        mod.texture_coords_object = viento
+        mod.direction = "RGB_TO_XYZ"
+        mod.space = "GLOBAL"  # mismo desplazamiento para la cinta y el texto que tiene encima
+        mod.strength = VIENTO
+        mod.mid_level = 0.5
 
     mat_cinta = material_cartulina("Cartulina azul", COLOR_CINTA, 0.88)
     mat_canto = material_cartulina("Canto de cartulina", COLOR_CANTO, 0.92, fibra=0.6)
     mat_texto = material_cartulina("Tinta blanca", COLOR_TEXTO, 0.8)
-    crear_cinta(tornillo, mat_cinta, mat_canto)
-    crear_texto(tornillo, mat_texto)
+    cinta = crear_cinta(tornillo, mat_cinta, mat_canto)
+    texto = crear_texto(tornillo, mat_texto)
+    ajustar_escala(mat_cinta, cinta.data)
+    ajustar_escala(mat_canto, cinta.data)
+    ajustar_escala(mat_texto, texto.data)
+    ondular(cinta)
+    ondular(texto)
     crear_ciclorama()
 
     # Cámara de frente, apenas desde arriba para que se vea el piso perderse en la pared

@@ -1,0 +1,208 @@
+<title>Cinta Tregua</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Syne:wght@700&display=swap">
+<style>
+  /* Layout: una sola escena WebGL a pantalla completa, sin texto de interfaz. Look único naranja, a propósito. */
+  :root {
+    --bg: #ff6b1f;
+    color-scheme: light;
+  }
+  html, body { height: 100%; }
+  body { background: var(--bg); overflow: hidden; }
+  #stage { position: fixed; inset: 0; }
+  #stage canvas { display: block; width: 100%; height: 100%; }
+</style>
+
+<div id="stage" role="img" aria-label="Cinta azul con el texto Tregua Estudio en blanco, enrollada en espiral y corriendo sobre fondo naranja"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/build/three.min.js"></script>
+<script>
+(() => {
+  const stage = document.getElementById('stage');
+  if (!window.THREE) return;
+
+  let renderer;
+  try {
+    renderer = new THREE.WebGLRenderer({ antialias: true });
+  } catch (e) {
+    return;
+  }
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.outputEncoding = THREE.sRGBEncoding;
+  stage.appendChild(renderer.domElement);
+
+  const lin = hex => new THREE.Color(hex).convertSRGBToLinear();
+
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color('#ff6b1f');
+
+  const camera = new THREE.PerspectiveCamera(34, 1, 0.1, 100);
+  camera.position.set(0, 0, 15);
+
+  // ---------- Textura de la cinta: texto blanco sobre azul, un tramo que se repite sin costura ----------
+  const BLUE = '#1f3fe0';
+  const TILE_H = 224;
+  const FONT = '700 96px Syne, "Arial Black", sans-serif';
+
+  // TREGUA ── ESTUDIO →  ◌   (un tramo; la cinta lo repite)
+  function makeTileTexture() {
+    const c = document.createElement('canvas');
+    let ctx = c.getContext('2d');
+    ctx.font = FONT;
+    const wT = ctx.measureText('TREGUA').width, wE = ctx.measureText('ESTUDIO').width;
+    const width = Math.ceil(70 + wT + 30 + 90 + 30 + wE + 34 + 112 + 50 + 60 + 70);
+    c.width = width; c.height = TILE_H;
+    ctx = c.getContext('2d');
+    ctx.fillStyle = BLUE;
+    ctx.fillRect(0, 0, width, TILE_H);
+    ctx.fillStyle = '#ffffff';
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineCap = 'round';
+    ctx.textBaseline = 'middle';
+    ctx.font = FONT;
+    const mid = TILE_H / 2 + 4;
+    let x = 70;
+    ctx.fillText('TREGUA', x, mid);
+    x += wT + 30;
+    ctx.lineWidth = 5;
+    ctx.beginPath(); ctx.moveTo(x, mid); ctx.lineTo(x + 90, mid); ctx.stroke();
+    x += 120;
+    ctx.fillText('ESTUDIO', x, mid);
+    x += wE + 34;
+    ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.moveTo(x, mid); ctx.lineTo(x + 110, mid); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x + 84, mid - 22); ctx.lineTo(x + 112, mid); ctx.lineTo(x + 84, mid + 22); ctx.stroke();
+    x += 112 + 50;
+    // anillo de puntos con uno faltante, como un dial
+    for (let i = 0; i < 10; i++) {
+      if (i === 2) continue;
+      const a = i / 10 * Math.PI * 2 - Math.PI / 2;
+      ctx.beginPath();
+      ctx.arc(x + 30 + Math.cos(a) * 30, mid + Math.sin(a) * 30, 7, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    const t = new THREE.CanvasTexture(c);
+    t.encoding = THREE.sRGBEncoding;
+    t.wrapS = THREE.RepeatWrapping;
+    t.anisotropy = renderer.capabilities.getMaxAnisotropy();
+    // la UV u está medida en "anchos de cinta"; un tramo ocupa width/TILE_H anchos
+    t.repeat.x = TILE_H / width;
+    return t;
+  }
+
+  // ---------- Cinta: banda enrollada en hélice alrededor de un eje diagonal ----------
+  const WIDTH = 1.0, RADIUS = 2.3, LENGTH = 30, TURNS = 6.5, SAMPLES = 1600;
+  const axis = new THREE.Vector3(1, -0.78, 0.3).normalize();
+  const e1 = new THREE.Vector3(0, 0, 1).cross(axis).normalize();
+  const e2 = new THREE.Vector3().crossVectors(axis, e1).normalize();
+
+  const center = t => {
+    const th = t * TURNS * Math.PI * 2;
+    return axis.clone().multiplyScalar((t - 0.5) * LENGTH)
+      .add(e1.clone().multiplyScalar(Math.cos(th) * RADIUS))
+      .add(e2.clone().multiplyScalar(Math.sin(th) * RADIUS));
+  };
+  const radial = t => {
+    const th = t * TURNS * Math.PI * 2;
+    return e1.clone().multiplyScalar(Math.cos(th)).add(e2.clone().multiplyScalar(Math.sin(th)));
+  };
+
+  const pos = new Float32Array((SAMPLES + 1) * 2 * 3);
+  const nor = new Float32Array((SAMPLES + 1) * 2 * 3);
+  const uv = new Float32Array((SAMPLES + 1) * 2 * 2);
+  let arc = 0, prev = center(0);
+  for (let i = 0; i <= SAMPLES; i++) {
+    const t = i / SAMPLES;
+    const c = center(t);
+    if (i > 0) arc += c.distanceTo(prev);
+    prev = c;
+    const T = center(Math.min(1, t + 1e-4)).sub(center(Math.max(0, t - 1e-4))).normalize();
+    const N = radial(t);                        // la cara impresa mira hacia afuera
+    const B = new THREE.Vector3().crossVectors(N, T).normalize(); // T × B = N: el texto no queda espejado
+    for (let s = 0; s < 2; s++) {
+      const k = i * 2 + s;
+      const side = s === 0 ? -0.5 : 0.5;
+      const p = c.clone().addScaledVector(B, side * WIDTH);
+      pos.set([p.x, p.y, p.z], k * 3);
+      nor.set([N.x, N.y, N.z], k * 3);
+      uv.set([arc / WIDTH, s], k * 2); // u en anchos de cinta: el texto no se deforma
+    }
+  }
+  const idx = [];
+  for (let i = 0; i < SAMPLES; i++) {
+    const a = i * 2, b = a + 1, c = a + 2, d = a + 3;
+    idx.push(a, c, b, b, c, d);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+  geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  geo.setIndex(idx);
+
+  // Asegura que las caras frontales sean las de afuera (según el orden de los triángulos)
+  const testN = new THREE.Vector3(), pa = new THREE.Vector3(), pb = new THREE.Vector3(), pc = new THREE.Vector3();
+  pa.fromArray(pos, idx[0] * 3); pb.fromArray(pos, idx[1] * 3); pc.fromArray(pos, idx[2] * 3);
+  testN.crossVectors(pb.clone().sub(pa), pc.clone().sub(pa));
+  if (testN.dot(radial(0)) < 0) {
+    for (let i = 0; i < idx.length; i += 3) { const tmp = idx[i + 1]; idx[i + 1] = idx[i + 2]; idx[i + 2] = tmp; }
+    geo.setIndex(idx);
+  }
+
+  const frontMat = new THREE.MeshStandardMaterial({
+    map: makeTileTexture(), roughness: 0.62, metalness: 0, side: THREE.FrontSide,
+  });
+  const front = new THREE.Mesh(geo, frontMat);
+  // cuando carga la tipografía, se rehace la textura con las medidas reales del texto
+  if (document.fonts && document.fonts.load) {
+    Promise.race([document.fonts.load(FONT), new Promise(r => setTimeout(r, 3000))]).then(() => {
+      const old = frontMat.map;
+      const next = makeTileTexture();
+      next.offset.x = old.offset.x;
+      frontMat.map = next;
+      old.dispose();
+    });
+  }
+  // dorso: el mismo azul, un poco más oscuro y sin texto
+  const back = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
+    color: lin('#1834c2'), roughness: 0.62, metalness: 0, side: THREE.BackSide,
+  }));
+  const ribbon = new THREE.Group();
+  ribbon.add(front, back);
+  scene.add(ribbon);
+
+  // ---------- Luz: suave y pareja, con un poco de volumen y un rebote cálido del naranja ----------
+  scene.add(new THREE.HemisphereLight(lin('#ffffff'), lin('#ff9a5c'), 0.75));
+  const key = new THREE.DirectionalLight(lin('#ffffff'), 0.7);
+  key.position.set(-4, 6, 10);
+  scene.add(key);
+
+  // ---------- Loop ----------
+  function resize() {
+    const w = stage.clientWidth, h = stage.clientHeight;
+    renderer.setSize(w, h, false);
+    camera.aspect = w / h;
+    camera.fov = w / h < 0.75 ? 52 : 34;
+    camera.updateProjectionMatrix();
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  const reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const SPEED = 0.09; // tramos por segundo que corre la cinta (el offset se mide en tramos)
+  const clock = new THREE.Clock();
+  let t = 0;
+  function frame() {
+    const dt = Math.min(clock.getDelta(), 0.05);
+    if (!reduced) {
+      t += dt;
+      frontMat.map.offset.x -= SPEED * dt;
+      ribbon.rotation.y = 0.12 * Math.sin(t * 0.25);
+      ribbon.rotation.x = 0.06 * Math.sin(t * 0.18 + 1);
+    }
+    renderer.render(scene, camera);
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})();
+</script>

@@ -6,7 +6,7 @@ Uso:
     (logo-fld.glb tiene que estar en la misma carpeta que este script.)
   - Por consola: blender -b -P setup_blender.py -- [--render salida.png] [--save escena.blend]
                                                   [--samples 256] [--res 2048] [--fondo blanco|transparente]
-                                                  [--frame N] [--video salida.mp4]
+                                                  [--frame N] [--video salida.mp4] [--frames carpeta]
 """
 import math
 import os
@@ -31,6 +31,7 @@ FONDO = "blanco"     # "blanco" (infinito blanco) o "transparente"
 FONDO_EMISION = 2.2 # cuánto "brilla" el blanco del fondo (más alto = más blanco, sombras más suaves)
 FLOTA = 2.5          # distancia entre las letras y el piso (la sombra se separa del logo)
 ANIM_FRAMES = 150    # 5 s a 30 fps: entrada ~2,5 s + logo quieto
+ANIM_MOTION_END = 76 # último cuadro con movimiento (el giro del logo termina en el 75)
 
 
 def script_dir():
@@ -359,6 +360,18 @@ def main():
     animate_entrance(letters, c)
     frame = int(argv[argv.index("--frame") + 1]) if "--frame" in argv else ANIM_FRAMES
     bpy.context.scene.frame_set(frame)  # por defecto el render fijo muestra la pose final
+
+    frames_dir = argv[argv.index("--frames") + 1] if "--frames" in argv else None
+    if frames_dir:
+        # Solo los cuadros con movimiento (1..ANIM_MOTION_END); el resto es el logo quieto
+        # y se completa repitiendo el último cuadro al armar el video.
+        sc = bpy.context.scene
+        sc.frame_start, sc.frame_end = 1, ANIM_MOTION_END
+        sc.render.image_settings.file_format = "PNG"
+        sc.render.image_settings.color_mode = "RGB"
+        sc.render.filepath = os.path.join(os.path.abspath(frames_dir), "cuadro_####")
+        bpy.ops.render.render(animation=True)
+        return
 
     if video_path:
         sc = bpy.context.scene

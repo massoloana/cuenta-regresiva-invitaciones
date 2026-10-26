@@ -12,6 +12,7 @@ import os
 import sys
 
 import bpy
+import bmesh  # después de bpy: fuera de Blender solo existe una vez cargado bpy
 from mathutils import Vector
 
 # ---------------------------------------------------------------- parámetros
@@ -20,8 +21,9 @@ COLOR_STOPS = [  # degradado en pantalla: arriba-izquierda -> abajo-derecha
     (0.45, "#3A62E0"),
     (1.00, "#8A3FE0"),
 ]
-ROUGHNESS = 0.22     # más bajo = más espejado
-COAT = 0.35          # capa de barniz que da el brillo "pulido"
+ROUGHNESS = 0.14     # más bajo = más espejado
+COAT = 0.3           # capa de barniz que da el brillo "pulido"
+SMOOTH_ANGLE = 40    # grados: los biseles se ven lisos, las caras planas quedan con aristas definidas
 RESOLUTION = 2048
 SAMPLES = 256
 
@@ -56,6 +58,15 @@ def import_letters(path):
         for attr in list(o.data.color_attributes):  # el degradado lo hace el material
             o.data.color_attributes.remove(attr)
         o.data.materials.clear()
+        # three.js exporta cada triángulo suelto: se sueldan los vértices para poder suavizar
+        bm = bmesh.new(); bm.from_mesh(o.data)
+        bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=1e-4)
+        bm.to_mesh(o.data); bm.free()
+    bpy.ops.object.select_all(action="DESELECT")
+    for o in letters:
+        o.select_set(True)
+    bpy.context.view_layer.objects.active = letters[0]
+    bpy.ops.object.shade_smooth_by_angle(angle=math.radians(SMOOTH_ANGLE))
     return letters
 
 
@@ -71,7 +82,10 @@ def make_material():
     bsdf.inputs["Metallic"].default_value = 1.0
     bsdf.inputs["Roughness"].default_value = ROUGHNESS
     bsdf.inputs["Coat Weight"].default_value = COAT
-    bsdf.inputs["Coat Roughness"].default_value = 0.05
+    bsdf.inputs["Coat Roughness"].default_value = 0.03
+    # Película fina: un leve tornasol en los reflejos, como el cromo anodizado
+    bsdf.inputs["Thin Film Thickness"].default_value = 260
+    bsdf.inputs["Thin Film IOR"].default_value = 1.4
     links.new(bsdf.outputs["BSDF"], out.inputs["Surface"])
 
     # Degradado en diagonal de pantalla usando coordenadas de cámara (x - y)
@@ -141,6 +155,28 @@ def add_area(name, loc, target, size, energy, color=(1, 1, 1)):
     return obj
 
 
+def add_softbox(name, loc, target, size, strength, color=(1, 1, 1)):
+    """Panel emisor que el metal refleja como una franja de luz; la cámara no lo ve."""
+    bpy.ops.mesh.primitive_plane_add(size=1, location=loc)
+    obj = bpy.context.active_object
+    obj.name = name
+    obj.scale = (size[0], size[1], 1)
+    obj.rotation_euler = (Vector(target) - Vector(loc)).to_track_quat("Z", "Y").to_euler()
+    obj.visible_camera = False
+    obj.visible_shadow = False
+    mat = bpy.data.materials.new(name)
+    mat.use_nodes = True
+    nodes = mat.node_tree.nodes
+    nodes.clear()
+    em = nodes.new("ShaderNodeEmission")
+    em.inputs["Color"].default_value = (*color, 1)
+    em.inputs["Strength"].default_value = strength
+    out = nodes.new("ShaderNodeOutputMaterial")
+    mat.node_tree.links.new(em.outputs["Emission"], out.inputs["Surface"])
+    obj.data.materials.append(mat)
+    return obj
+
+
 def bounds(objs):
     pts = [o.matrix_world @ Vector(c) for o in objs for c in o.bound_box]
     lo = Vector((min(p.x for p in pts), min(p.y for p in pts), min(p.z for p in pts)))
@@ -201,11 +237,19 @@ def main():
 
     make_world()
     cam, c = setup_camera(letters)
-    # Key arriba-izquierda, relleno frontal suave y contraluz violeta por la derecha
-    add_area("Key", c + Vector((-14, -6, 22)), c, (14, 6), 2500)
-    add_area("Relleno", c + Vector((18, -18, 8)), c, (20, 20), 600)
-    add_area("Contra violeta", c + Vector((22, 10, 6)), c, (6, 16), 1500, (0.72, 0.6, 1.0))
-    add_area("Strip superior", c + Vector((0, 0, 26)), c, (30, 3), 900)
+    # Luces: key arriba-izquierda y contraluz violeta
+    add_area("Key", c + Vector((-14, -6, 22)), c, (14, 6), 1800)
+    add_area("Contra violeta", c + Vector((22, 10, 6)), c, (6, 16), 1200, (0.72, 0.6, 1.0))
+    # Softboxes: lo que el metal refleja (franjas de brillo en caras y biseles)
+    add_softbox("Softbox cenital", c + Vector((0, 0, 30)), c, (40, 40), 1.6)
+    add_softbox("Strip izquierda", c + Vector((-6, -30, 14)), c, (4, 40), 6.0)
+    add_softbox("Strip derecha", c + Vector((30, 6, 14)), c, (4, 40), 4.0, (0.85, 0.8, 1.0))
+    # Con cámara ortográfica cada cara plana refleja una sola dirección; se pone un panel justo ahí
+    # para que las caras grandes se vean brillantes como metal pulido.
+    k = 32 / math.sqrt(3)
+    add_softbox("Reflejo cara D", c + Vector((-k, -k, -k)), c, (24, 24), 0.75)
+    add_softbox("Reflejo cara L", c + Vector((k, k, -k)), c, (24, 24), 0.55, (0.9, 0.85, 1.0))
+    add_softbox("Reflejo cara F", c + Vector((-k, k, k)), c, (24, 24), 0.9)
     setup_render()
 
     if save_path:

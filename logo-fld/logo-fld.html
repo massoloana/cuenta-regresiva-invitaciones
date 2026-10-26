@@ -57,28 +57,22 @@ l.lineTo(GAP + T, S - GAP);
 l.lineTo(GAP, S - GAP);
 l.lineTo(GAP, GAP);
 
-// ---- D (right face x=S, coords w=S-z, y): stem along center edge, shield-shaped bowl
-// outer: stem, top, right side, then a quadratic sweep back to the stem foot
-const dx0 = GAP, dx1 = S - GAP, dy1 = S - GAP, dy0 = GAP, dym = dy0 + (dy1 - dy0) * 0.5;
-const qp = t => { const a = (1 - t) * (1 - t), b = 2 * (1 - t) * t, c = t * t;  // (x1,ym) -> ctrl (x1,y0) -> (x0,y0)
-  return [a * dx1 + b * dx1 + c * dx0, a * dym + b * dy0 + c * dy0]; };
-const d = new THREE.Shape();
-d.moveTo(dx0, dy0); d.lineTo(dx0, dy1); d.lineTo(dx1, dy1); d.lineTo(dx1, dym);
-d.quadraticCurveTo(dx1, dy0, dx0, dy0);
-// inner: the same outline offset inward by exactly T, so the bowl keeps the bar width
-const inner = [];
-const N = 64;
-for (let i = 1; i <= N; i++) {
-  const t = i / N, [x, y] = qp(t), e = 1e-3;
-  const [xa, ya] = qp(Math.max(0, t - e)), [xb, yb] = qp(Math.min(1, t + e));
-  let tx = xb - xa, ty = yb - ya; const L = Math.hypot(tx, ty); tx /= L; ty /= L;
-  const px = x + ty * T, py = y - tx * T;      // right-hand normal points inside
-  if (px >= dx0 + T - 1e-6) inner.push([px, py]);
+// ---- D (right face x=S, coords w=S-z, y): straight stem + top/bottom bars, semicircular bowl
+// Inner contour is the outer one offset by exactly T, so the stroke matches F and L everywhere.
+function dShape(path, x0, y0, x1, y1, r) {
+  path.moveTo(x0, y0);
+  path.lineTo(x1 - r, y0);
+  path.absarc(x1 - r, y0 + r, r, -Math.PI / 2, 0, false);
+  path.lineTo(x1, y1 - r);
+  path.absarc(x1 - r, y1 - r, r, 0, Math.PI / 2, false);
+  path.lineTo(x0, y1);
+  path.lineTo(x0, y0);
 }
+const dx0 = GAP, dx1 = S - GAP, dy0 = GAP, dy1 = S - GAP, dR = (dy1 - dy0) / 2;
+const d = new THREE.Shape();
+dShape(d, dx0, dy0, dx1, dy1, dR);
 const dh = new THREE.Path();
-dh.moveTo(dx0 + T, dy1 - T); dh.lineTo(dx1 - T, dy1 - T); dh.lineTo(dx1 - T, dym);
-inner.forEach(([x, y]) => dh.lineTo(Math.max(x, dx0 + T), y));
-dh.lineTo(dx0 + T, inner[inner.length - 1][1]); dh.lineTo(dx0 + T, dy1 - T);
+dShape(dh, dx0 + T, dy0 + T, dx1 - T, dy1 - T, dR - T);
 d.holes.push(dh);
 
 // Metallic blue -> purple gradient by world position

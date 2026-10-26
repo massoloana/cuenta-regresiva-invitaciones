@@ -369,6 +369,7 @@ def main():
         sc.frame_start, sc.frame_end = 1, ANIM_MOTION_END
         sc.render.image_settings.file_format = "PNG"
         sc.render.image_settings.color_mode = "RGB"
+        sc.render.use_overwrite = False  # retomar un render cortado: saltea los cuadros ya hechos
         sc.render.filepath = os.path.join(os.path.abspath(frames_dir), "cuadro_####")
         bpy.ops.render.render(animation=True)
         return

@@ -5,7 +5,8 @@ Uso:
   - Desde Blender: abrir la pestaña Scripting, abrir este archivo y pulsar Run Script.
     (logo-fld.glb tiene que estar en la misma carpeta que este script.)
   - Por consola: blender -b -P setup_blender.py -- [--render salida.png] [--save escena.blend]
-                                                  [--samples 256] [--res 2048]
+                                                  [--samples 256] [--res 2048] [--fondo blanco|transparente]
+                                                  [--frame N] [--video salida.mp4]
 """
 import math
 import os
@@ -17,15 +18,19 @@ from mathutils import Vector
 
 # ---------------------------------------------------------------- parámetros
 COLOR_STOPS = [  # degradado en pantalla: arriba-izquierda -> abajo-derecha
-    (0.00, "#3CC0FF"),
-    (0.45, "#3A62E0"),
-    (1.00, "#8A3FE0"),
+    (0.00, "#2C9FE0"),
+    (0.45, "#2B4CC0"),
+    (1.00, "#6A2DBE"),
 ]
 ROUGHNESS = 0.14     # más bajo = más espejado
 COAT = 0.3           # capa de barniz que da el brillo "pulido"
 SMOOTH_ANGLE = 40    # grados: los biseles se ven lisos, las caras planas quedan con aristas definidas
 RESOLUTION = 2048
 SAMPLES = 256
+FONDO = "blanco"     # "blanco" (infinito blanco) o "transparente"
+FONDO_EMISION = 2.2 # cuánto "brilla" el blanco del fondo (más alto = más blanco, sombras más suaves)
+FLOTA = 2.5          # distancia entre las letras y el piso (la sombra se separa del logo)
+ANIM_FRAMES = 150    # 5 s a 30 fps: entrada ~2,5 s + logo quieto
 
 
 def script_dir():
@@ -122,7 +127,7 @@ def make_world():
     nodes.clear()
     out = nodes.new("ShaderNodeOutputWorld"); out.location = (600, 0)
     bg = nodes.new("ShaderNodeBackground"); bg.location = (400, 0)
-    bg.inputs["Strength"].default_value = 1.0
+    bg.inputs["Strength"].default_value = 0.7
     tc = nodes.new("ShaderNodeTexCoord"); tc.location = (-400, 0)
     sep = nodes.new("ShaderNodeSeparateXYZ"); sep.location = (-200, 0)
     ramp = nodes.new("ShaderNodeValToRGB"); ramp.location = (0, 0)
@@ -208,12 +213,106 @@ def setup_camera(objs):
     return cam, center
 
 
+def make_cyclorama(center, floor_z):
+    """Infinito blanco: piso + curva + pared, una sola pieza sin aristas.
+    La pared queda del lado opuesto a la cámara, así el fondo nunca muestra un corte."""
+    R, FLOOR, WALL, WIDTH, BACK = 25.0, 120.0, 120.0, 300.0, 40.0
+    profile = [(-FLOOR, 0.0)]
+    for i in range(0, 25):  # cuarto de círculo
+        a = math.radians(90 * i / 24)
+        profile.append((BACK + R * math.sin(a), R * (1 - math.cos(a))))
+    profile.append((BACK + R, WALL))
+    verts, faces = [], []
+    for u, z in profile:
+        verts += [(-WIDTH / 2, u, z), (WIDTH / 2, u, z)]
+    for i in range(len(profile) - 1):
+        a = 2 * i
+        faces.append((a, a + 1, a + 3, a + 2))
+    mesh = bpy.data.meshes.new("Infinito")
+    mesh.from_pydata(verts, [], faces)
+    mesh.update()
+    obj = bpy.data.objects.new("Infinito blanco", mesh)
+    bpy.context.scene.collection.objects.link(obj)
+    # local +Y = "hacia el fondo": se orienta en la dirección horizontal opuesta a la cámara (-X, +Y)
+    obj.rotation_euler = (0, 0, math.radians(45))
+    obj.location = (center.x, center.y, floor_z)
+    for p in obj.data.polygons:
+        p.use_smooth = True
+    # El piso recibe sombra pero el metal no lo refleja (si no, las caras se lavan de blanco)
+    obj.visible_glossy = False
+    obj.visible_shadow = False
+
+    mat = bpy.data.materials.new("Infinito blanco")
+    mat.use_nodes = True
+    bsdf = mat.node_tree.nodes["Principled BSDF"]
+    bsdf.inputs["Base Color"].default_value = (0.92, 0.92, 0.93, 1)
+    bsdf.inputs["Roughness"].default_value = 0.55
+    # Un poco de emisión propia: el blanco se mantiene blanco y las sombras quedan suaves
+    bsdf.inputs["Emission Color"].default_value = (1, 1, 1, 1)
+    bsdf.inputs["Emission Strength"].default_value = FONDO_EMISION
+    obj.data.materials.append(mat)
+    return obj
+
+
+def animate_entrance(letters, center):
+    """Entrada para redes: cada letra llega desde su lado girando, el logo completo
+    gira 70° hasta quedar en la vista del logo y se queda quieto para que se lea."""
+    sc = bpy.context.scene
+    sc.render.fps = 30
+    sc.frame_start, sc.frame_end = 1, ANIM_FRAMES
+
+    pivot = bpy.data.objects.new("Logo (pivote)", None)
+    sc.collection.objects.link(pivot)
+    pivot.location = center
+    bpy.context.view_layer.update()
+    for o in letters:
+        mw = o.matrix_world.copy()
+        o.rotation_mode = "XYZ"  # el importador de glTF deja cuaterniones; se anima en Euler
+        o.parent = pivot
+        o.matrix_world = mw
+
+    def key(obj, path, frame, value, interp="BEZIER", easing="AUTO"):
+        setattr(obj, path, value)
+        obj.keyframe_insert(path, frame=frame)
+        for fc in obj.animation_data.action.fcurves:
+            if fc.data_path == path:
+                for kp in fc.keyframe_points:
+                    if kp.co.x == frame:
+                        kp.interpolation, kp.easing = interp, easing
+
+    by_name = {o.name: o for o in letters}
+    # (letra, desde dónde llega, eje de giro, cuadro de inicio)
+    entries = [("D", Vector((0, -18, 0)), 2, 1), ("L", Vector((18, 0, 0)), 2, 9), ("F", Vector((0, 0, 18)), 2, 17)]
+    for name, offset, axis, start in entries:
+        o = by_name.get(name)
+        if o is None:
+            continue
+        end = start + 34
+        home_loc, home_rot = o.location.copy(), o.rotation_euler.copy()
+        o.location = home_loc + offset
+        r = home_rot.copy(); r[axis] -= math.radians(120)
+        o.rotation_euler = r
+        o.keyframe_insert("location", frame=start)
+        o.keyframe_insert("rotation_euler", frame=start)
+        o.location, o.rotation_euler = home_loc, home_rot
+        o.keyframe_insert("location", frame=end)
+        o.keyframe_insert("rotation_euler", frame=end)
+        for fc in o.animation_data.action.fcurves:
+            for kp in fc.keyframe_points:
+                if kp.co.x == start:
+                    kp.interpolation, kp.easing = "BACK", "EASE_OUT"
+                    kp.back = 1.2
+
+    key(pivot, "rotation_euler", 1, (0, 0, math.radians(-70)), "EXPO", "EASE_OUT")
+    key(pivot, "rotation_euler", 75, (0, 0, 0))
+
+
 def setup_render():
     sc = bpy.context.scene
     sc.render.engine = "CYCLES"
     sc.cycles.samples = SAMPLES
     sc.cycles.use_denoising = True
-    sc.render.film_transparent = True
+    sc.render.film_transparent = FONDO == "transparente"
     sc.render.resolution_x = sc.render.resolution_y = RESOLUTION
     sc.render.image_settings.file_format = "PNG"
     sc.render.image_settings.color_mode = "RGBA"
@@ -225,9 +324,11 @@ def main():
     argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
     render_path = argv[argv.index("--render") + 1] if "--render" in argv else None
     save_path = argv[argv.index("--save") + 1] if "--save" in argv else None
-    global SAMPLES, RESOLUTION
+    video_path = argv[argv.index("--video") + 1] if "--video" in argv else None
+    global SAMPLES, RESOLUTION, FONDO
     if "--samples" in argv: SAMPLES = int(argv[argv.index("--samples") + 1])
     if "--res" in argv: RESOLUTION = int(argv[argv.index("--res") + 1])
+    if "--fondo" in argv: FONDO = argv[argv.index("--fondo") + 1]
 
     reset_scene()
     letters = import_letters(os.path.join(script_dir(), "logo-fld.glb"))
@@ -237,20 +338,38 @@ def main():
 
     make_world()
     cam, c = setup_camera(letters)
+    lo, _, _ = bounds(letters)
+    if FONDO == "blanco":
+        make_cyclorama(c, lo.z - FLOTA)
     # Luces: key arriba-izquierda y contraluz violeta
-    add_area("Key", c + Vector((-14, -6, 22)), c, (14, 6), 1800)
-    add_area("Contra violeta", c + Vector((22, 10, 6)), c, (6, 16), 1200, (0.72, 0.6, 1.0))
+    add_area("Key", c + Vector((-14, -6, 22)), c, (14, 6), 1100)
+    add_area("Contra violeta", c + Vector((22, 10, 6)), c, (6, 16), 750, (0.72, 0.6, 1.0))
     # Softboxes: lo que el metal refleja (franjas de brillo en caras y biseles)
-    add_softbox("Softbox cenital", c + Vector((0, 0, 30)), c, (40, 40), 1.6)
-    add_softbox("Strip izquierda", c + Vector((-6, -30, 14)), c, (4, 40), 6.0)
-    add_softbox("Strip derecha", c + Vector((30, 6, 14)), c, (4, 40), 4.0, (0.85, 0.8, 1.0))
+    add_softbox("Softbox cenital", c + Vector((0, 0, 30)), c, (40, 40), 1.0)
+    add_softbox("Strip izquierda", c + Vector((-6, -30, 14)), c, (4, 40), 4.0)
+    add_softbox("Strip derecha", c + Vector((30, 6, 14)), c, (4, 40), 2.6, (0.85, 0.8, 1.0))
     # Con cámara ortográfica cada cara plana refleja una sola dirección; se pone un panel justo ahí
     # para que las caras grandes se vean brillantes como metal pulido.
+    # (El infinito blanco no aparece en reflejos, así que estos paneles se ven aunque queden bajo el piso.)
     k = 32 / math.sqrt(3)
-    add_softbox("Reflejo cara D", c + Vector((-k, -k, -k)), c, (24, 24), 0.75)
-    add_softbox("Reflejo cara L", c + Vector((k, k, -k)), c, (24, 24), 0.55, (0.9, 0.85, 1.0))
-    add_softbox("Reflejo cara F", c + Vector((-k, k, k)), c, (24, 24), 0.9)
+    add_softbox("Reflejo cara D", c + Vector((-k, -k, -k)), c, (24, 24), 0.45)
+    add_softbox("Reflejo cara L", c + Vector((k, k, -k)), c, (24, 24), 0.35, (0.9, 0.85, 1.0))
+    add_softbox("Reflejo cara F", c + Vector((-k, k, k)), c, (24, 24), 0.55)
     setup_render()
+    animate_entrance(letters, c)
+    frame = int(argv[argv.index("--frame") + 1]) if "--frame" in argv else ANIM_FRAMES
+    bpy.context.scene.frame_set(frame)  # por defecto el render fijo muestra la pose final
+
+    if video_path:
+        sc = bpy.context.scene
+        sc.render.image_settings.file_format = "FFMPEG"
+        sc.render.ffmpeg.format = "MPEG4"
+        sc.render.ffmpeg.codec = "H264"
+        sc.render.ffmpeg.constant_rate_factor = "HIGH"
+        sc.render.ffmpeg.ffmpeg_preset = "GOOD"
+        sc.render.filepath = os.path.abspath(video_path)
+        bpy.ops.render.render(animation=True)
+        return
 
     if save_path:
         bpy.ops.wm.save_as_mainfile(filepath=os.path.abspath(save_path))

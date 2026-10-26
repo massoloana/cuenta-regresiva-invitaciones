@@ -91,19 +91,20 @@ function colorize(geo, mesh) {
 }
 const mat = new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.85, roughness: 0.22, envMapIntensity: 1.3 });
 
-function addLetter(shape, place) {
+function addLetter(name, shape, place) {
   const geo = new THREE.ExtrudeGeometry(shape, bevel);
   const mesh = new THREE.Mesh(geo, mat);
+  mesh.name = name;
   place(mesh);
   scene.add(mesh);
   colorize(geo, mesh);
 }
 // Top face: shape (u,v) -> world (x=u, z=v), extruded up (+y)
-addLetter(f0, m => { m.rotation.x = -Math.PI / 2; m.position.set(0, S, S); });
+addLetter('F', f0, m => { m.rotation.x = -Math.PI / 2; m.position.set(0, S, S); });
 // Left face z=S: shape (u,v) -> (x=u, y=v), extruded +z
-addLetter(d, m => { m.position.z = S; });
+addLetter('D', d, m => { m.position.z = S; });
 // Right face x=S: shape (w,y) -> (z=S-w, y), extruded +x
-addLetter(l, m => { m.rotation.y = Math.PI / 2; m.position.set(S, 0, S); });
+addLetter('L', l, m => { m.rotation.y = Math.PI / 2; m.position.set(S, 0, S); });
 
 scene.add(new THREE.AmbientLight(0xffffff, 0.25));
 const key = new THREE.DirectionalLight(0xffffff, 1.6); key.position.set(-4, 20, 8); scene.add(key);
@@ -115,5 +116,6 @@ const c = new THREE.Vector3(S / 2, S / 2, S / 2);
 cam.position.copy(c).add(new THREE.Vector3(1, 1, 1).normalize().multiplyScalar(60));
 cam.lookAt(c);
 renderer.render(scene, cam);
+window.scene = scene;
 window.DONE = true;
 </script></body></html>

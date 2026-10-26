@@ -47,7 +47,7 @@ f.lineTo(GAP + T, fLen);
 f.lineTo(GAP, fLen);
 f.lineTo(GAP, GAP);
 
-// ---- L (left face z=S, coords u=x, v=y): stem along x≈0, foot along y≈0
+// ---- L (right face x=S, coords w=S-z, y): stem along x≈0, foot along y≈0
 const l = new THREE.Shape();
 l.moveTo(GAP, GAP);
 l.lineTo(S - GAP, GAP);
@@ -57,13 +57,11 @@ l.lineTo(GAP + T, S - GAP);
 l.lineTo(GAP, S - GAP);
 l.lineTo(GAP, GAP);
 
-// ---- D (right face x=S, coords w=S-z, y): straight stem + top/bottom bars, semicircular bowl
+// ---- D (left face z=S, coords u=x, v=y): straight stem + top/bottom bars, semicircular bowl
 // Inner contour is the outer one offset by exactly T, so the stroke matches F and L everywhere.
 function dShape(path, x0, y0, x1, y1, r) {
   path.moveTo(x0, y0);
-  path.lineTo(x1 - r, y0);
   path.absarc(x1 - r, y0 + r, r, -Math.PI / 2, 0, false);
-  path.lineTo(x1, y1 - r);
   path.absarc(x1 - r, y1 - r, r, 0, Math.PI / 2, false);
   path.lineTo(x0, y1);
   path.lineTo(x0, y0);
@@ -101,9 +99,9 @@ function addLetter(shape, place) {
 // Top face: shape (u,v) -> world (x=u, z=v), extruded up (+y)
 addLetter(f0, m => { m.rotation.x = -Math.PI / 2; m.position.set(0, S, S); });
 // Left face z=S: shape (u,v) -> (x=u, y=v), extruded +z
-addLetter(l, m => { m.position.z = S; });
+addLetter(d, m => { m.position.z = S; });
 // Right face x=S: shape (w,y) -> (z=S-w, y), extruded +x
-addLetter(d, m => { m.rotation.y = Math.PI / 2; m.position.set(S, 0, S); });
+addLetter(l, m => { m.rotation.y = Math.PI / 2; m.position.set(S, 0, S); });
 
 scene.add(new THREE.AmbientLight(0xffffff, 0.25));
 const key = new THREE.DirectionalLight(0xffffff, 1.6); key.position.set(-4, 20, 8); scene.add(key);

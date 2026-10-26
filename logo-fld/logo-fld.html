@@ -1,0 +1,125 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<style>html,body{margin:0;background:transparent}</style>
+<script type="importmap">{"imports":{"three":"./node_modules/three/build/three.module.js","three/addons/":"./node_modules/three/examples/jsm/"}}</script>
+</head><body>
+<script type="module">
+import * as THREE from 'three';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+
+const W = 1024, H = 1024;
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
+renderer.setSize(W, H);
+renderer.setPixelRatio(1);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+
+// Same parameters for all three letters
+const S = 10;        // cube size
+const T = 1.5;       // bar width
+const DEPTH = 0.9;   // extrusion
+const GAP = 0.9;     // gap between letters at hexagon edges
+const bevel = { depth: DEPTH, bevelEnabled: true, bevelThickness: 0.22, bevelSize: 0.22, bevelSegments: 8, curveSegments: 64 };
+
+function rect(s, x0, y0, x1, y1) { s.moveTo(x0, y0); s.lineTo(x1, y0); s.lineTo(x1, y1); s.lineTo(x0, y1); s.lineTo(x0, y0); }
+
+// ---- F (top face, coords u=x, v=z) : stem along x≈0, top arm along z≈0
+const f0 = new THREE.Shape();
+const f = { moveTo:(x,y)=>f0.moveTo(x,S-y), lineTo:(x,y)=>f0.lineTo(x,S-y) };
+const fLen = S - GAP;            // stem length
+const armTop = S - GAP;          // top arm length
+const armMid = 0.62 * S;         // middle arm length
+const midPos = 0.42 * S;         // middle arm offset from top
+f.moveTo(GAP, GAP);
+f.lineTo(armTop, GAP);
+f.lineTo(armTop, GAP + T);
+f.lineTo(GAP + T, GAP + T);
+f.lineTo(GAP + T, midPos);
+f.lineTo(armMid, midPos);
+f.lineTo(armMid, midPos + T);
+f.lineTo(GAP + T, midPos + T);
+f.lineTo(GAP + T, fLen);
+f.lineTo(GAP, fLen);
+f.lineTo(GAP, GAP);
+
+// ---- L (left face z=S, coords u=x, v=y): stem along x≈0, foot along y≈0
+const l = new THREE.Shape();
+l.moveTo(GAP, GAP);
+l.lineTo(S - GAP, GAP);
+l.lineTo(S - GAP, GAP + T);
+l.lineTo(GAP + T, GAP + T);
+l.lineTo(GAP + T, S - GAP);
+l.lineTo(GAP, S - GAP);
+l.lineTo(GAP, GAP);
+
+// ---- D (right face x=S, coords w=S-z, y): stem along center edge, shield-shaped bowl
+// outer: stem, top, right side, then a quadratic sweep back to the stem foot
+const dx0 = GAP, dx1 = S - GAP, dy1 = S - GAP, dy0 = GAP, dym = dy0 + (dy1 - dy0) * 0.5;
+const qp = t => { const a = (1 - t) * (1 - t), b = 2 * (1 - t) * t, c = t * t;  // (x1,ym) -> ctrl (x1,y0) -> (x0,y0)
+  return [a * dx1 + b * dx1 + c * dx0, a * dym + b * dy0 + c * dy0]; };
+const d = new THREE.Shape();
+d.moveTo(dx0, dy0); d.lineTo(dx0, dy1); d.lineTo(dx1, dy1); d.lineTo(dx1, dym);
+d.quadraticCurveTo(dx1, dy0, dx0, dy0);
+// inner: the same outline offset inward by exactly T, so the bowl keeps the bar width
+const inner = [];
+const N = 64;
+for (let i = 1; i <= N; i++) {
+  const t = i / N, [x, y] = qp(t), e = 1e-3;
+  const [xa, ya] = qp(Math.max(0, t - e)), [xb, yb] = qp(Math.min(1, t + e));
+  let tx = xb - xa, ty = yb - ya; const L = Math.hypot(tx, ty); tx /= L; ty /= L;
+  const px = x + ty * T, py = y - tx * T;      // right-hand normal points inside
+  if (px >= dx0 + T - 1e-6) inner.push([px, py]);
+}
+const dh = new THREE.Path();
+dh.moveTo(dx0 + T, dy1 - T); dh.lineTo(dx1 - T, dy1 - T); dh.lineTo(dx1 - T, dym);
+inner.forEach(([x, y]) => dh.lineTo(Math.max(x, dx0 + T), y));
+dh.lineTo(dx0 + T, inner[inner.length - 1][1]); dh.lineTo(dx0 + T, dy1 - T);
+d.holes.push(dh);
+
+// Metallic blue -> purple gradient by world position
+const c1 = new THREE.Color('#2fa8ff'), c2 = new THREE.Color('#3a5fd6'), c3 = new THREE.Color('#7a3fd0');
+function colorize(geo, mesh) {
+  mesh.updateMatrixWorld();
+  const pos = geo.attributes.position, cols = [], v = new THREE.Vector3(), c = new THREE.Color();
+  for (let i = 0; i < pos.count; i++) {
+    v.fromBufferAttribute(pos, i).applyMatrix4(mesh.matrixWorld);
+    // diagonal from upper-left (blue) to lower-right (purple) on screen
+    const t = THREE.MathUtils.clamp((v.x - v.y - v.z * 0.4 + 12) / 22, 0, 1);
+    if (t < 0.5) c.copy(c1).lerp(c2, t * 2); else c.copy(c2).lerp(c3, (t - 0.5) * 2);
+    cols.push(c.r, c.g, c.b);
+  }
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3));
+}
+const mat = new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.85, roughness: 0.22, envMapIntensity: 1.3 });
+
+function addLetter(shape, place) {
+  const geo = new THREE.ExtrudeGeometry(shape, bevel);
+  const mesh = new THREE.Mesh(geo, mat);
+  place(mesh);
+  scene.add(mesh);
+  colorize(geo, mesh);
+}
+// Top face: shape (u,v) -> world (x=u, z=v), extruded up (+y)
+addLetter(f0, m => { m.rotation.x = -Math.PI / 2; m.position.set(0, S, S); });
+// Left face z=S: shape (u,v) -> (x=u, y=v), extruded +z
+addLetter(l, m => { m.position.z = S; });
+// Right face x=S: shape (w,y) -> (z=S-w, y), extruded +x
+addLetter(d, m => { m.rotation.y = Math.PI / 2; m.position.set(S, 0, S); });
+
+scene.add(new THREE.AmbientLight(0xffffff, 0.25));
+const key = new THREE.DirectionalLight(0xffffff, 1.6); key.position.set(-4, 20, 8); scene.add(key);
+const rim = new THREE.DirectionalLight(0xb9a6ff, 0.8); rim.position.set(20, 4, -6); scene.add(rim);
+
+const half = S * 1.1;
+const cam = new THREE.OrthographicCamera(-half, half, half, -half, 0.1, 200);
+const c = new THREE.Vector3(S / 2, S / 2, S / 2);
+cam.position.copy(c).add(new THREE.Vector3(1, 1, 1).normalize().multiplyScalar(60));
+cam.lookAt(c);
+renderer.render(scene, cam);
+window.DONE = true;
+</script></body></html>

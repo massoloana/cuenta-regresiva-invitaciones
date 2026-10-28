@@ -31,8 +31,8 @@ SAMPLES = 256
 FONDO = "blanco"     # "blanco" (infinito blanco) o "transparente"
 FONDO_EMISION = 2.2 # cuánto "brilla" el blanco del fondo (más alto = más blanco, sombras más suaves)
 FLOTA = 2.5          # distancia entre las letras y el piso (la sombra se separa del logo)
-ANIM_FRAMES = 150    # 5 s a 30 fps: entrada ~2,5 s + logo quieto
-ANIM_MOTION_END = 76 # último cuadro con movimiento (el giro del logo termina en el 75)
+ANIM_FRAMES = 120    # 4 s a 30 fps: entrada ~2 s + logo quieto
+ANIM_MOTION_END = 61 # último cuadro con movimiento (el giro del logo termina en el 60)
 
 
 def script_dir():
@@ -258,7 +258,7 @@ def make_cyclorama(center, floor_z):
 
 def animate_entrance(letters, center):
     """Entrada para redes: cada letra llega desde su lado girando, el logo completo
-    gira 70° hasta quedar en la vista del logo y se queda quieto para que se lea."""
+    gira 55° hasta quedar en la vista del logo y se queda quieto para que se lea."""
     sc = bpy.context.scene
     sc.render.fps = 30
     sc.frame_start, sc.frame_end = 1, ANIM_FRAMES
@@ -284,12 +284,13 @@ def animate_entrance(letters, center):
 
     by_name = {o.name: o for o in letters}
     # (letra, desde dónde llega, eje de giro, cuadro de inicio)
-    entries = [("D", Vector((0, -18, 0)), 2, 1), ("L", Vector((18, 0, 0)), 2, 9), ("F", Vector((0, 0, 18)), 2, 17)]
+    # los inicios negativos hacen que en el cuadro 1 la D ya esté entrando (sin pantalla vacía)
+    entries = [("D", Vector((0, -11, 0)), 2, -8), ("L", Vector((11, 0, 0)), 2, -2), ("F", Vector((0, 0, 11)), 2, 4)]
     for name, offset, axis, start in entries:
         o = by_name.get(name)
         if o is None:
             continue
-        end = start + 34
+        end = start + 32
         home_loc, home_rot = o.location.copy(), o.rotation_euler.copy()
         o.location = home_loc + offset
         r = home_rot.copy(); r[axis] -= math.radians(120)
@@ -305,8 +306,8 @@ def animate_entrance(letters, center):
                     kp.interpolation, kp.easing = "BACK", "EASE_OUT"
                     kp.back = 1.2
 
-    key(pivot, "rotation_euler", 1, (0, 0, math.radians(-70)), "EXPO", "EASE_OUT")
-    key(pivot, "rotation_euler", 75, (0, 0, 0))
+    key(pivot, "rotation_euler", 1, (0, 0, math.radians(-55)), "EXPO", "EASE_OUT")
+    key(pivot, "rotation_euler", 60, (0, 0, 0))
 
 
 def setup_render():

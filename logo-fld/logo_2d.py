@@ -4,7 +4,7 @@ Usa la misma geometría que el modelo 3D (logo-fld.html): cubo de 10 unidades,
 trazo 1.5, separación 0.9, F con brazo medio al 80 %, L con base al 75 %,
 D al 88 % + 2.5 % de compensación óptica. Las letras se proyectan en isométrico.
 
-Uso: python3 logo_2d.py  -> escribe logo-fld-2d-color.svg y logo-fld-2d-mono.svg
+Uso: python3 logo_2d.py  -> escribe logo-fld-2d-{color,mono,degradado}.svg
 """
 import math
 import os
@@ -15,7 +15,11 @@ PALETAS = {
     # cada letra un pleno: F (cara de arriba), D (izquierda), L (derecha)
     "color": {"F": "#5B4BD8", "D": "#7032C8", "L": "#4A1F96"},
     "mono": {"F": "#6C32C8", "D": "#6C32C8", "L": "#6C32C8"},
+    # un solo degradado para todo el logo (mismos colores que la versión 3D)
+    "degradado": {"F": "url(#grad)", "D": "url(#grad)", "L": "url(#grad)"},
 }
+
+DEGRADADO = [(0.00, "#3A86E0"), (0.22, "#6A44DA"), (0.50, "#7C34D0"), (1.00, "#8526BE")]
 
 
 def iso(p):
@@ -73,6 +77,13 @@ def svg(paleta, size=1024, margin=0.08):
     ox = (size - w * scale) / 2 - min(xs) * scale
     oy = (size - h * scale) / 2 - min(ys) * scale
     out = [f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {size} {size}" width="{size}" height="{size}">']
+    if paleta == "degradado":
+        # diagonal de arriba-izquierda a abajo-derecha del logo
+        x0, y0 = min(xs) * scale + ox, min(ys) * scale + oy
+        x1, y1 = max(xs) * scale + ox, max(ys) * scale + oy
+        stops = "".join(f'<stop offset="{o}" stop-color="{c}"/>' for o, c in DEGRADADO)
+        out.append(f'  <defs><linearGradient id="grad" gradientUnits="userSpaceOnUse" '
+                   f'x1="{x0:.1f}" y1="{y0:.1f}" x2="{x1:.1f}" y2="{y1:.1f}">{stops}</linearGradient></defs>')
     for k in ("F", "D", "L"):
         d = " ".join("M" + " L".join(f"{x * scale + ox:.2f},{y * scale + oy:.2f}" for x, y in ring) + " Z"
                      for ring in proj[k])

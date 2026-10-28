@@ -6,7 +6,7 @@ Uso:
     (logo-fld.glb tiene que estar en la misma carpeta que este script.)
   - Por consola: blender -b -P setup_blender.py -- [--render salida.png] [--save escena.blend]
                                                   [--samples 256] [--res 2048] [--fondo blanco|transparente]
-                                                  [--frame N] [--video salida.mp4] [--frames carpeta]
+                                                  [--frame N] [--video salida.mp4] [--frames carpeta] [--vertical]
 """
 import math
 import os
@@ -28,6 +28,7 @@ COAT = 0.3           # capa de barniz que da el brillo "pulido"
 SMOOTH_ANGLE = 40    # grados: los biseles se ven lisos, las caras planas quedan con aristas definidas
 RESOLUTION = 2048
 SAMPLES = 256
+VERTICAL = False     # True (--vertical): formato 9:16 para reels e historias
 FONDO = "blanco"     # "blanco" (infinito blanco) o "transparente"
 FONDO_EMISION = 2.2 # cuánto "brilla" el blanco del fondo (más alto = más blanco, sombras más suaves)
 FLOTA = 2.5          # distancia entre las letras y el piso (la sombra se separa del logo)
@@ -210,7 +211,12 @@ def setup_camera(objs):
     xs, ys = [p.x for p in local], [p.y for p in local]
     cx, cy = (min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2
     cam.location = cam.matrix_world @ Vector((cx, cy, 0))
-    cam_data.ortho_scale = max(max(xs) - min(xs), max(ys) - min(ys)) * 1.12
+    ancho, alto = max(xs) - min(xs), max(ys) - min(ys)
+    if VERTICAL:
+        # 9:16: la escala ortográfica cubre el alto; el ancho visible es 9/16 de eso
+        cam_data.ortho_scale = max(ancho * 1.30 * 16 / 9, alto * 1.12)
+    else:
+        cam_data.ortho_scale = max(ancho, alto) * 1.12
     bpy.context.scene.camera = cam
     return cam, center
 
@@ -317,6 +323,8 @@ def setup_render():
     sc.cycles.use_denoising = True
     sc.render.film_transparent = FONDO == "transparente"
     sc.render.resolution_x = sc.render.resolution_y = RESOLUTION
+    if VERTICAL:  # reels / historias: 1080 x 1920 con --res 1080
+        sc.render.resolution_y = round(RESOLUTION * 16 / 9)
     sc.render.image_settings.file_format = "PNG"
     sc.render.image_settings.color_mode = "RGBA"
     sc.view_settings.view_transform = "AgX"
@@ -328,9 +336,10 @@ def main():
     render_path = argv[argv.index("--render") + 1] if "--render" in argv else None
     save_path = argv[argv.index("--save") + 1] if "--save" in argv else None
     video_path = argv[argv.index("--video") + 1] if "--video" in argv else None
-    global SAMPLES, RESOLUTION, FONDO
+    global SAMPLES, RESOLUTION, FONDO, VERTICAL
     if "--samples" in argv: SAMPLES = int(argv[argv.index("--samples") + 1])
     if "--res" in argv: RESOLUTION = int(argv[argv.index("--res") + 1])
+    VERTICAL = "--vertical" in argv
     if "--fondo" in argv: FONDO = argv[argv.index("--fondo") + 1]
 
     reset_scene()

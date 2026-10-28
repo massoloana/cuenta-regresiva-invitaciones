@@ -5,6 +5,7 @@ trazo 1.5, separación 0.9, F con brazo medio al 80 %, L con base al 75 %,
 D al 88 % + 2.5 % de compensación óptica. Las letras se proyectan en isométrico.
 
 Uso: python3 logo_2d.py  -> escribe logo-fld-2d-{color,mono,degradado}.svg
+                            y logo-fld-extruido-{plenos,degradado}.svg
 """
 import math
 import os
@@ -92,8 +93,62 @@ def svg(paleta, size=1024, margin=0.08):
     return "\n".join(out) + "\n"
 
 
+# Estilo "letra extruida" plana: cara en un color, canto en otro más oscuro, sin sombras
+EXTRUIDO = {
+    "plenos": {"cara": "#8A4FE8", "canto": "#3B1580"},
+    "degradado": {"cara": "url(#grad)", "canto": "#3B1580"},
+}
+PROFUNDIDAD = 1.3
+NORMALES = {"F": (0, 1, 0), "D": (0, 0, 1), "L": (1, 0, 0)}  # hacia la cámara
+
+
+def svg_extruido(estilo, size=1024, margin=0.08):
+    letras = {"F": f_shape(), "D": d_shape(), "L": l_shape()}
+    piezas = {}  # letra -> (polígonos del canto, anillos de la cara)
+    for k, rings in letras.items():
+        n = NORMALES[k]
+        frente = [[(x + n[0] * PROFUNDIDAD, y + n[1] * PROFUNDIDAD, z + n[2] * PROFUNDIDAD) for x, y, z in r]
+                  for r in rings]
+        canto = []  # solo las paredes laterales: la cara trasera no se ve y taparía el hueco de la D
+        for atras, adelante in zip(rings, frente):
+            for i in range(len(atras)):
+                j = (i + 1) % len(atras)
+                canto.append([iso(atras[i]), iso(atras[j]), iso(adelante[j]), iso(adelante[i])])
+        piezas[k] = (canto, [list(map(iso, r)) for r in frente])
+
+    pts = [p for c, f in piezas.values() for poly in c + f for p in poly]
+    xs, ys = [p[0] for p in pts], [p[1] for p in pts]
+    w, h = max(xs) - min(xs), max(ys) - min(ys)
+    scale = size * (1 - 2 * margin) / max(w, h)
+    ox = (size - w * scale) / 2 - min(xs) * scale
+    oy = (size - h * scale) / 2 - min(ys) * scale
+    fmt = lambda poly: "M" + " L".join(f"{x * scale + ox:.2f},{y * scale + oy:.2f}" for x, y in poly) + " Z"
+
+    col = EXTRUIDO[estilo]
+    out = [f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {size} {size}" width="{size}" height="{size}">']
+    if col["cara"].startswith("url"):
+        stops = "".join(f'<stop offset="{o}" stop-color="{c}"/>' for o, c in DEGRADADO)
+        out.append(f'  <defs><linearGradient id="grad" gradientUnits="userSpaceOnUse" '
+                   f'x1="{min(xs) * scale + ox:.1f}" y1="{min(ys) * scale + oy:.1f}" '
+                   f'x2="{max(xs) * scale + ox:.1f}" y2="{max(ys) * scale + oy:.1f}">{stops}</linearGradient></defs>')
+    for k in ("F", "D", "L"):  # de atrás hacia adelante
+        canto, cara = piezas[k]
+        out.append(f'  <g id="{k}">')
+        # cada pieza del canto por separado: en un solo path las superpuestas se cancelan
+        for poly in canto:
+            out.append(f'    <path d="{fmt(poly)}" fill="{col["canto"]}" '
+                       f'stroke="{col["canto"]}" stroke-width="0.6" stroke-linejoin="round"/>')
+        out.append(f'    <path d="{" ".join(fmt(r) for r in cara)}" fill="{col["cara"]}" fill-rule="evenodd"/>')
+        out.append("  </g>")
+    out.append("</svg>")
+    return "\n".join(out) + "\n"
+
+
 if __name__ == "__main__":
     here = os.path.dirname(os.path.abspath(__file__))
     for nombre in PALETAS:
         with open(os.path.join(here, f"logo-fld-2d-{nombre}.svg"), "w") as fh:
             fh.write(svg(nombre))
+    for estilo in EXTRUIDO:
+        with open(os.path.join(here, f"logo-fld-extruido-{estilo}.svg"), "w") as fh:
+            fh.write(svg_extruido(estilo))

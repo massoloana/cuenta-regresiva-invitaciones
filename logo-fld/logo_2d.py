@@ -96,8 +96,11 @@ def svg(paleta, size=1024, margin=0.08):
 # Estilo "letra extruida" plana: cara en un color, canto en otro más oscuro, sin sombras
 EXTRUIDO = {
     "plenos": {"cara": "#8A4FE8", "canto": "#3B1580"},
-    "degradado": {"cara": "url(#grad)", "canto": "#3B1580"},
+    "degradado": {"cara": "url(#grad)", "canto": "url(#grad-canto)"},
 }
+# Recorrido amplio azul -> violeta, como en el render 3D
+DEGRADADO_CARA = [(0.00, "#2F95F0"), (0.30, "#4F63E0"), (0.60, "#7442D6"), (1.00, "#8A2CC4")]
+DEGRADADO_CANTO = [(0.00, "#123A86"), (0.40, "#25267A"), (1.00, "#3B1270")]
 PROFUNDIDAD = 1.3
 NORMALES = {"F": (0, 1, 0), "D": (0, 0, 1), "L": (1, 0, 0)}  # hacia la cámara
 
@@ -127,10 +130,14 @@ def svg_extruido(estilo, size=1024, margin=0.08):
     col = EXTRUIDO[estilo]
     out = [f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {size} {size}" width="{size}" height="{size}">']
     if col["cara"].startswith("url"):
-        stops = "".join(f'<stop offset="{o}" stop-color="{c}"/>' for o, c in DEGRADADO)
-        out.append(f'  <defs><linearGradient id="grad" gradientUnits="userSpaceOnUse" '
-                   f'x1="{min(xs) * scale + ox:.1f}" y1="{min(ys) * scale + oy:.1f}" '
-                   f'x2="{max(xs) * scale + ox:.1f}" y2="{max(ys) * scale + oy:.1f}">{stops}</linearGradient></defs>')
+        x0, y0 = min(xs) * scale + ox, min(ys) * scale + oy
+        x1, y1 = max(xs) * scale + ox, max(ys) * scale + oy
+        out.append("  <defs>")
+        for gid, paradas in (("grad", DEGRADADO_CARA), ("grad-canto", DEGRADADO_CANTO)):
+            stops = "".join(f'<stop offset="{o}" stop-color="{c}"/>' for o, c in paradas)
+            out.append(f'    <linearGradient id="{gid}" gradientUnits="userSpaceOnUse" '
+                       f'x1="{x0:.1f}" y1="{y0:.1f}" x2="{x1:.1f}" y2="{y1:.1f}">{stops}</linearGradient>')
+        out.append("  </defs>")
     for k in ("F", "D", "L"):  # de atrás hacia adelante
         canto, cara = piezas[k]
         out.append(f'  <g id="{k}">')

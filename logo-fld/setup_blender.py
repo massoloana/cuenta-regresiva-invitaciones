@@ -18,9 +18,10 @@ from mathutils import Vector
 
 # ---------------------------------------------------------------- parámetros
 COLOR_STOPS = [  # degradado en pantalla: arriba-izquierda -> abajo-derecha
-    (0.00, "#2C9FE0"),
-    (0.45, "#2B4CC0"),
-    (1.00, "#6A2DBE"),
+    (0.00, "#3A86E0"),   # azul solo como acento arriba a la izquierda
+    (0.22, "#6A44DA"),
+    (0.50, "#7C34D0"),   # violeta: color principal
+    (1.00, "#8526BE"),
 ]
 ROUGHNESS = 0.14     # más bajo = más espejado
 COAT = 0.3           # capa de barniz que da el brillo "pulido"

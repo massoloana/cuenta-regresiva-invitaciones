@@ -6,7 +6,7 @@ Uso:
     (logo-fld.glb tiene que estar en la misma carpeta que este script.)
   - Por consola: blender -b -P setup_blender.py -- [--render salida.png] [--save escena.blend]
                                                   [--samples 256] [--res 2048] [--fondo blanco|transparente]
-                                                  [--frame N] [--video salida.mp4] [--frames carpeta] [--vertical]
+                                                  [--frame N] [--video salida.mp4] [--frames carpeta] [--vertical] [--giro]
 """
 import math
 import os
@@ -28,6 +28,8 @@ COAT = 0.3           # capa de barniz que da el brillo "pulido"
 SMOOTH_ANGLE = 40    # grados: los biseles se ven lisos, las caras planas quedan con aristas definidas
 RESOLUTION = 2048
 SAMPLES = 256
+GIRO = False         # True (--giro): giro continuo en loop, fondo transparente (logo de canal)
+GIRO_FRAMES = 120    # una vuelta completa: 4 s a 30 fps
 VERTICAL = False     # True (--vertical): formato 9:16 para reels e historias
 FONDO = "blanco"     # "blanco" (infinito blanco) o "transparente"
 FONDO_EMISION = 2.2 # cuánto "brilla" el blanco del fondo (más alto = más blanco, sombras más suaves)
@@ -316,6 +318,38 @@ def animate_entrance(letters, center):
     key(pivot, "rotation_euler", 60, (0, 0, 0))
 
 
+def animate_spin(letters, center, cam):
+    """Logo de canal: una vuelta completa sobre el eje vertical, a velocidad constante.
+    El cuadro GIRO_FRAMES + 1 sería igual al 1, así que el loop empalma sin saltos."""
+    sc = bpy.context.scene
+    sc.render.fps = 30
+    sc.frame_start, sc.frame_end = 1, GIRO_FRAMES
+    lo, hi, pts = bounds(letters)
+    pivot = bpy.data.objects.new("Logo (giro)", None)
+    sc.collection.objects.link(pivot)
+    pivot.location = (center.x, center.y, (lo.z + hi.z) / 2)
+    bpy.context.view_layer.update()
+    for o in letters:
+        mw = o.matrix_world.copy()
+        o.parent = pivot
+        o.matrix_world = mw
+    pivot.rotation_euler = (0, 0, 0)
+    pivot.keyframe_insert("rotation_euler", frame=1)
+    pivot.rotation_euler = (0, 0, 2 * math.pi)
+    pivot.keyframe_insert("rotation_euler", frame=GIRO_FRAMES + 1)
+    for fc in pivot.animation_data.action.fcurves:
+        for kp in fc.keyframe_points:
+            kp.interpolation = "LINEAR"
+
+    # Encuadre que contiene al logo en cualquier ángulo del giro
+    r = max(math.hypot(p.x - center.x, p.y - center.y) for p in pts)
+    e = math.radians(90 - 54.7356)  # elevación de la vista isométrica
+    alto = (hi.z - lo.z) * math.cos(e) + 2 * r * math.sin(e)
+    view_dir = cam.rotation_euler.to_matrix() @ Vector((0, 0, 1))
+    cam.location = Vector(pivot.location) + view_dir * 60
+    cam.data.ortho_scale = max(2 * r, alto) * 1.06
+
+
 def setup_render():
     sc = bpy.context.scene
     sc.render.engine = "CYCLES"
@@ -336,11 +370,14 @@ def main():
     render_path = argv[argv.index("--render") + 1] if "--render" in argv else None
     save_path = argv[argv.index("--save") + 1] if "--save" in argv else None
     video_path = argv[argv.index("--video") + 1] if "--video" in argv else None
-    global SAMPLES, RESOLUTION, FONDO, VERTICAL
+    global SAMPLES, RESOLUTION, FONDO, VERTICAL, GIRO
     if "--samples" in argv: SAMPLES = int(argv[argv.index("--samples") + 1])
     if "--res" in argv: RESOLUTION = int(argv[argv.index("--res") + 1])
     VERTICAL = "--vertical" in argv
     if "--fondo" in argv: FONDO = argv[argv.index("--fondo") + 1]
+    GIRO = "--giro" in argv
+    if GIRO and "--fondo" not in argv:
+        FONDO = "transparente"
 
     reset_scene()
     letters = import_letters(os.path.join(script_dir(), "logo-fld.glb"))
@@ -368,8 +405,11 @@ def main():
     add_softbox("Reflejo cara L", c + Vector((k, k, -k)), c, (24, 24), 0.35, (0.9, 0.85, 1.0))
     add_softbox("Reflejo cara F", c + Vector((-k, k, k)), c, (24, 24), 0.55)
     setup_render()
-    animate_entrance(letters, c)
-    frame = int(argv[argv.index("--frame") + 1]) if "--frame" in argv else ANIM_FRAMES
+    if GIRO:
+        animate_spin(letters, c, cam)
+    else:
+        animate_entrance(letters, c)
+    frame = int(argv[argv.index("--frame") + 1]) if "--frame" in argv else (1 if GIRO else ANIM_FRAMES)
     bpy.context.scene.frame_set(frame)  # por defecto el render fijo muestra la pose final
 
     frames_dir = argv[argv.index("--frames") + 1] if "--frames" in argv else None
@@ -377,9 +417,9 @@ def main():
         # Solo los cuadros con movimiento (1..ANIM_MOTION_END); el resto es el logo quieto
         # y se completa repitiendo el último cuadro al armar el video.
         sc = bpy.context.scene
-        sc.frame_start, sc.frame_end = 1, ANIM_MOTION_END
+        sc.frame_start, sc.frame_end = 1, (GIRO_FRAMES if GIRO else ANIM_MOTION_END)
         sc.render.image_settings.file_format = "PNG"
-        sc.render.image_settings.color_mode = "RGB"
+        sc.render.image_settings.color_mode = "RGBA" if FONDO == "transparente" else "RGB"
         sc.render.use_overwrite = False  # retomar un render cortado: saltea los cuadros ya hechos
         sc.render.filepath = os.path.join(os.path.abspath(frames_dir), "cuadro_####")
         bpy.ops.render.render(animation=True)

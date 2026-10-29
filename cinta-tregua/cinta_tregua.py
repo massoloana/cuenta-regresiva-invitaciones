@@ -12,20 +12,21 @@ Cómo usarlo:
 Qué arma:
   - Fondo infinito naranja: un papel de estudio lejano (piso que sube en curva a la pared),
     con un círculo de luz detrás de la cinta que se apaga hacia los bordes.
-  - Una cinta azul de cartulina (mate, con fibra de papel y canto claro) enrollada en hélice,
-    en diagonal, con "TREGUA — ESTUDIO →" y un anillo de puntos impresos en blanco.
+  - Una cinta azul de cartulina (mate, con fibra de papel y canto claro) que cae en espiral
+    suelta y despareja, en diagonal: las vueltas cambian de tamaño y separación, el eje se
+    curva y la cinta se tuerce sola, como una tira de papel soltada a mano.
+  - "TREGUA — ESTUDIO →" y un anillo de puntos impresos en blanco que corren por la cinta.
   - Luz de tarde: principal cálida y rasante desde la izquierda, contra fría que marca
     los cantos, y profundidad de campo suave.
-  - Movimiento natural: la cinta acelera y frena, se ondula como si la moviera el aire
-    y toda la espiral se mece apenas. Todo sigue empalmando en loop.
-  - La cinta "corre": un movimiento de tornillo hace que la hélice quede en su lugar
-    mientras el texto avanza como un cartel corredizo. El loop es perfecto
-    (frame 1 = frame final + 1): 3 vueltas de 8 s = 24 s.
+  - Movimiento relajado: el texto se desliza sin apuro, acelerando y frenando suave;
+    la cinta respira con el aire y toda la espiral se mece. El loop es perfecto
+    (frame 1 = frame final + 1).
 
 Todo lo ajustable está en PARÁMETROS.
 """
 
 import math
+import os
 
 import bmesh
 import bpy
@@ -33,7 +34,6 @@ from mathutils import Euler, Vector
 
 # ------------------------------------------------------------------ PARÁMETROS
 TEXTO = "TREGUA — ESTUDIO →"
-DIVISIONES_ANCHO = 16     # la cinta y el texto se cortan en esta grilla para ondularse juntos
 FONT_PATH = ""            # ruta a un .ttf/.otf; vacío = tipografía por defecto de Blender
 
 COLOR_FONDO = "#FF6B1F"   # naranja
@@ -42,26 +42,31 @@ COLOR_TEXTO = "#FFFFFF"   # blanco
 COLOR_CANTO = "#EDE7DC"   # el alma clara de la cartulina que se ve en el corte
 GROSOR = 0.018            # grosor de la cartulina
 
+# Forma de la espiral (suelta, no perfecta)
 ANCHO = 1.0               # ancho de la cinta
-RADIO = 2.3               # radio de la hélice
-PASO = 2.7                # avance por vuelta (tiene que ser mayor que ANCHO para no chocarse)
-VUELTAS = 15              # vueltas totales (las puntas quedan fuera de cuadro todo el loop)
-VUELTAS_LOOP = 3          # el loop dura estas vueltas; así el frente no muestra siempre la misma palabra
-ALTO_TEXTO = 0.62         # tamaño del texto (cuerpo de la fuente)
-ESPACIO_MIN = 0.45        # separación mínima entre repeticiones
+RADIO = 2.3               # radio promedio de las vueltas
+VARIACION_RADIO = 0.28    # cuánto cambia el tamaño de una vuelta a otra (0 = todas iguales)
+PASO = 2.8                # separación promedio entre vueltas
+VARIACION_PASO = 0.3      # vueltas más juntas y más separadas (0 = parejas)
+CURVA_EJE = 1.3           # cuánto se curva el eje de la espiral (0 = recto)
+TORSION = 0.45            # cuánto se tuerce la cinta sola, en radianes (0 = siempre de frente)
+VUELTAS = 11
+ALTO_TEXTO = 0.62         # tamaño del texto respecto del ancho de la cinta
+ESPACIO = 0.7             # separación entre repeticiones del texto
 
 FPS = 30
-FRAMES_POR_VUELTA = 240   # 8 s por vuelta: más alto = corre más lento
+DURACION_LOOP = 24        # segundos
+TRAMOS_POR_LOOP = 2       # cuántas repeticiones del texto avanzan en cada loop (más = más rápido)
 RESOLUCION = (1920, 1080)
 MOTOR = "CYCLES"          # "CYCLES" (más lindo) o el nombre de EEVEE de tu versión
 MUESTRAS = 96
 
-# Movimiento natural
-VARIACION_VELOCIDAD = 0.45  # 0 = velocidad constante; 0.45 = acelera y frena ±45 %
-PULSOS_VELOCIDAD = 3        # cuántas veces acelera y frena en cada loop
-VIENTO = 0.55               # cuánto se ondula la cinta en el aire (0 = rígida)
-ESCALA_VIENTO = 3.2         # tamaño de las ondulaciones: más grande = curvas más amplias
-BALANCEO = 2.5              # grados que se mece toda la espiral
+# Movimiento relajado
+VARIACION_VELOCIDAD = 0.35  # el texto acelera y frena ±35 %
+PULSOS_VELOCIDAD = 2        # cuántas veces acelera y frena en cada loop
+VIENTO = 0.45               # cuánto respira la cinta en el aire (0 = quieta)
+ESCALA_VIENTO = 3.4         # tamaño de las ondulaciones
+BALANCEO = 3.0              # grados que se mece toda la espiral
 # -----------------------------------------------------------------------------
 
 
@@ -164,149 +169,183 @@ def material_cartulina(nombre, color_hex, rugosidad=0.9, fibra=1.0):
     return mat
 
 
-# ---------- Hélice: eje X local; s = largo recorrido sobre la cinta ----------
-LARGO_VUELTA = math.hypot(2 * math.pi * RADIO, PASO)
-# durante el loop la cinta avanza VUELTAS_LOOP vueltas; se arma corrida hacia atrás la mitad
-# para que ninguna punta entre en cuadro
-CENTRO_S = -LARGO_VUELTA * VUELTAS_LOOP / 2
+# ---------- Espiral suelta: camino, ejes y largo recorrido ----------
+def camino():
+    """Puntos a lo largo de la cinta con sus ejes: T a lo largo, B a lo ancho, N hacia afuera.
+
+    Es una espiral alrededor del eje X local, pero despareja: el radio y la separación cambian
+    de vuelta en vuelta, el eje se curva y la cinta se tuerce un poco por su cuenta.
+    """
+    pasos = int(VUELTAS * 1100)
+    th_max = 2 * math.pi * VUELTAS
+    puntos, ejes = [], []
+    for i in range(pasos + 1):
+        th = th_max * i / pasos
+        x = PASO / (2 * math.pi) * (th + VARIACION_PASO * math.sin(0.31 * th) / 0.31)
+        r = RADIO * (1 + VARIACION_RADIO * (0.7 * math.sin(0.23 * th + 1.0) + 0.3 * math.sin(0.71 * th)))
+        cy = CURVA_EJE * math.sin(0.11 * th + 0.3)
+        cz = CURVA_EJE * 0.7 * math.sin(0.08 * th + 2.1)
+        puntos.append(Vector((x, cy + r * math.cos(th), cz + r * math.sin(th))))
+        ejes.append(Vector((x, cy, cz)))
+    medio = (puntos[0].x + puntos[-1].x) / 2
+    for p in puntos + ejes:
+        p.x -= medio
+
+    s = 0.0
+    marcos = []
+    for i, p in enumerate(puntos):
+        if i:
+            s += (p - puntos[i - 1]).length
+        t = (puntos[min(i + 1, pasos)] - puntos[max(i - 1, 0)]).normalized()
+        radial = p - ejes[i]
+        n = (radial - t * radial.dot(t)).normalized()
+        b = n.cross(t)
+        # torsión libre: la cinta no queda siempre perfectamente apoyada en la espiral
+        giro = TORSION * (math.sin(0.17 * s + 0.8) + 0.5 * math.sin(0.41 * s))
+        n = n * math.cos(giro) + b * math.sin(giro)
+        b = n.cross(t).normalized()  # T × B = N: lo que mira hacia afuera no queda espejado
+        marcos.append((p, b, n, s))
+    return marcos
 
 
-def marco(s):
-    """Centro y ejes (T a lo largo, B a lo ancho, N hacia afuera) en el punto s de la cinta."""
-    th = 2 * math.pi * s / LARGO_VUELTA
-    c = Vector((PASO * s / LARGO_VUELTA, RADIO * math.cos(th), RADIO * math.sin(th)))
-    t = Vector((PASO / (2 * math.pi), -RADIO * math.sin(th), RADIO * math.cos(th))).normalized()
-    n = Vector((0.0, math.cos(th), math.sin(th)))
-    b = n.cross(t).normalized()  # T × B = N: lo que mira hacia afuera no queda espejado
-    return c, t, b, n
+# ---------- Texto impreso: se renderiza una vez a una imagen que se repite en la cinta ----------
+def imagen_del_texto():
+    """Renderiza "TREGUA — ESTUDIO →" + anillo de puntos a un PNG con transparencia.
 
+    Devuelve (imagen, largo del tramo en metros). La imagen queda guardada dentro del .blend.
+    """
+    principal = bpy.context.window.scene if bpy.context.window else bpy.context.scene
+    tmp = bpy.data.scenes.new("TextoTmp")
 
-def enrollar(bm, separacion=0.0):
-    """Lleva un mesh plano (x = largo, y = ancho, z = altura) a la superficie de la hélice."""
-    for v in bm.verts:
-        c, _, b, n = marco(v.co.x)
-        v.co = c + b * v.co.y + n * (v.co.z + separacion)
-
-
-# ---------- Tramo de texto plano ----------
-def mesh_de_texto():
     curva = bpy.data.curves.new("TextoTramo", type="FONT")
     curva.body = TEXTO
-    curva.size = ALTO_TEXTO
+    curva.size = ALTO_TEXTO * ANCHO
     curva.align_x = "LEFT"
     curva.align_y = "CENTER"
-    curva.resolution_u = 6
     if FONT_PATH:
         curva.font = bpy.data.fonts.load(FONT_PATH, check_existing=True)
-    ob = bpy.data.objects.new("TextoTramo", curva)
-    bpy.context.scene.collection.objects.link(ob)
+    texto = bpy.data.objects.new("TextoTramo", curva)
+    principal.collection.objects.link(texto)  # un momento en la escena principal, para convertirlo
     deps = bpy.context.evaluated_depsgraph_get()
-    me = bpy.data.meshes.new_from_object(ob.evaluated_get(deps))
-    bpy.data.objects.remove(ob, do_unlink=True)
-    bpy.data.curves.remove(curva)
-    return me
-
-
-def armar_tramo():
-    """Devuelve (bmesh del tramo plano, largo del tramo) con texto + anillo de puntos."""
-    bm = bmesh.new()
-    me = mesh_de_texto()
-    bm.from_mesh(me)
-    bpy.data.meshes.remove(me)
-
-    xs = [v.co.x for v in bm.verts]
-    ys = [v.co.y for v in bm.verts]
-    x0, x1 = min(xs), max(xs)
-    centro_y = (min(ys) + max(ys)) / 2
-    bmesh.ops.translate(bm, verts=bm.verts, vec=Vector((-x0, -centro_y, 0)))
-    largo_texto = x1 - x0
+    me = bpy.data.meshes.new_from_object(texto.evaluated_get(deps))
+    xs = [v.co.x for v in me.vertices]
+    ys = [v.co.y for v in me.vertices]
+    largo_texto = max(xs) - min(xs)
 
     # anillo de puntos con uno faltante, como un dial
-    r_anillo = ALTO_TEXTO * 0.36
-    r_punto = ALTO_TEXTO * 0.075
-    cx = largo_texto + ESPACIO_MIN * 0.6 + r_anillo
+    alto = ALTO_TEXTO * ANCHO
+    r_anillo, r_punto = alto * 0.36, alto * 0.075
+    bm = bmesh.new()
+    bm.from_mesh(me)
+    bmesh.ops.translate(bm, verts=bm.verts,
+                        vec=Vector((ESPACIO / 2 - min(xs), -(min(ys) + max(ys)) / 2, 0)))
+    cx = ESPACIO / 2 + largo_texto + ESPACIO * 0.6 + r_anillo
     for i in range(10):
         if i == 2:
             continue
         a = i / 10 * 2 * math.pi + math.pi / 2
-        ret = bmesh.ops.create_circle(bm, cap_ends=True, segments=16, radius=r_punto)
+        ret = bmesh.ops.create_circle(bm, cap_ends=True, segments=24, radius=r_punto)
         bmesh.ops.translate(bm, verts=ret["verts"],
                             vec=Vector((cx + math.cos(a) * r_anillo, math.sin(a) * r_anillo, 0)))
-    contenido = cx + r_anillo + r_punto
-
-    # cantidad entera de tramos por loop, así la animación empalma perfecto
-    largo_loop = LARGO_VUELTA * VUELTAS_LOOP
-    por_loop = max(1, int(largo_loop // (contenido + ESPACIO_MIN)))
-    largo_tramo = largo_loop / por_loop
-
-    # cortes cada 4 cm a lo largo y en la misma grilla que la cinta a lo ancho, para que las
-    # letras se curven y se ondulen junto con la cinta en vez de atravesarla
-    paso_corte = 0.04
-    k = paso_corte
-    while k < largo_tramo:
-        geom = bm.verts[:] + bm.edges[:] + bm.faces[:]
-        bmesh.ops.bisect_plane(bm, geom=geom, plane_co=(k, 0, 0), plane_no=(1, 0, 0))
-        k += paso_corte
-    for j in range(1, DIVISIONES_ANCHO):
-        y = -ANCHO / 2 + ANCHO * j / DIVISIONES_ANCHO
-        geom = bm.verts[:] + bm.edges[:] + bm.faces[:]
-        bmesh.ops.bisect_plane(bm, geom=geom, plane_co=(0, y, 0), plane_no=(0, 1, 0))
-
-    # girado 180° en el plano: en la cara que mira a cámara el texto se lee hacia abajo a la derecha
-    for v in bm.verts:
-        v.co.x = largo_tramo - v.co.x
-        v.co.y = -v.co.y
-    return bm, largo_tramo
-
-
-def crear_texto(padre, mat):
-    tramo, largo_tramo = armar_tramo()
-    me_tramo = bpy.data.meshes.new("tmp")
-    tramo.to_mesh(me_tramo)
-    tramo.free()
-
-    total = LARGO_VUELTA * VUELTAS
-    n = int(math.ceil(total / largo_tramo))
-    bm = bmesh.new()
-    inicio = CENTRO_S - total / 2
-    for i in range(n):
-        bm.from_mesh(me_tramo)  # agrega una copia nueva al final de la lista de vértices
-        bm.verts.ensure_lookup_table()
-        nuevos = bm.verts[len(bm.verts) - len(me_tramo.vertices):]
-        bmesh.ops.translate(bm, verts=nuevos, vec=Vector((inicio + i * largo_tramo, 0, 0)))
-    bpy.data.meshes.remove(me_tramo)
-
-    enrollar(bm, separacion=0.004)  # tinta impresa, casi pegada al papel
-    me = bpy.data.meshes.new("Texto")
+    largo_tramo = cx + r_anillo + r_punto + ESPACIO / 2
     bm.to_mesh(me)
     bm.free()
-    for p in me.polygons:
-        p.use_smooth = True
-    me.materials.append(mat)
-    ob = bpy.data.objects.new("Texto", me)
-    bpy.context.scene.collection.objects.link(ob)
-    ob.parent = padre
-    return ob
+    bpy.data.objects.remove(texto, do_unlink=True)
+    bpy.data.curves.remove(curva)
+    plano = bpy.data.objects.new("TramoPlano", me)
+    tmp.collection.objects.link(plano)
+
+    cam_data = bpy.data.cameras.new("CamTramo")
+    cam_data.type = "ORTHO"
+    cam_data.ortho_scale = largo_tramo
+    cam_data.sensor_fit = "HORIZONTAL"
+    cam = bpy.data.objects.new("CamTramo", cam_data)
+    tmp.collection.objects.link(cam)
+    cam.location = (largo_tramo / 2, 0, 5)
+    tmp.camera = cam
+
+    ancho_px = 6144
+    # Cycles con un material de emisión blanco: funciona igual con o sin placa de video
+    blanco = bpy.data.materials.new("TintaTmp")
+    blanco.use_nodes = True
+    nt = blanco.node_tree
+    nt.nodes.clear()
+    emision = nt.nodes.new("ShaderNodeEmission")
+    salida_mat = nt.nodes.new("ShaderNodeOutputMaterial")
+    nt.links.new(emision.outputs["Emission"], salida_mat.inputs["Surface"])
+    me.materials.append(blanco)
+    tmp.render.engine = "CYCLES"
+    tmp.cycles.samples = 8
+    tmp.cycles.use_denoising = False
+    tmp.render.resolution_x = ancho_px
+    tmp.render.resolution_y = max(8, round(ancho_px * ANCHO / largo_tramo))
+    tmp.render.resolution_percentage = 100
+    tmp.render.film_transparent = True
+    tmp.view_settings.view_transform = "Standard"
+    tmp.render.image_settings.file_format = "PNG"
+    tmp.render.image_settings.color_mode = "RGBA"
+    ruta = os.path.join(bpy.app.tempdir or "/tmp", "tregua_tramo.png")
+    tmp.render.filepath = ruta
+    bpy.ops.render.render(write_still=True, scene=tmp.name)
+
+    img = bpy.data.images.load(ruta, check_existing=False)
+    img.name = "Texto impreso"
+    img.pack()
+    for ob in list(tmp.collection.objects):
+        bpy.data.objects.remove(ob, do_unlink=True)
+    bpy.data.cameras.remove(cam_data)
+    bpy.data.meshes.remove(me)
+    bpy.data.materials.remove(blanco)
+    bpy.data.scenes.remove(tmp)
+    if bpy.context.window:
+        bpy.context.window.scene = principal
+    return img, largo_tramo
 
 
-def crear_cinta(padre, mat, mat_canto):
-    total = LARGO_VUELTA * VUELTAS
-    pasos = int(total / 0.04)
+def agregar_texto_impreso(mat, img, largo_tramo):
+    """Mezcla la tinta blanca sobre la cartulina; devuelve el nodo cuyo desplazamiento la hace correr."""
+    nt = mat.node_tree
+    bsdf = nt.nodes.get("Principled BSDF")
+    coord = next(n for n in nt.nodes if n.bl_idname == "ShaderNodeTexCoord")
+    tono = next(n for n in nt.nodes if n.bl_idname == "ShaderNodeHueSaturation")
+    corre = nt.nodes.new("ShaderNodeMapping")
+    corre.name = "CorreTexto"
+    imagen = nt.nodes.new("ShaderNodeTexImage")
+    imagen.image = img
+    imagen.extension = "REPEAT"
+    imagen.interpolation = "Cubic"
+    mezcla = nt.nodes.new("ShaderNodeMix")
+    mezcla.data_type = "RGBA"
+    entrada_a = next(i for i in mezcla.inputs if i.identifier == "A_Color")
+    entrada_b = next(i for i in mezcla.inputs if i.identifier == "B_Color")
+    salida = next(o for o in mezcla.outputs if o.identifier == "Result_Color")
+    entrada_b.default_value = hex_a_lineal(COLOR_TEXTO)
+    nt.links.new(coord.outputs["UV"], corre.inputs["Vector"])
+    nt.links.new(corre.outputs["Vector"], imagen.inputs["Vector"])
+    nt.links.new(imagen.outputs["Alpha"], mezcla.inputs["Factor"])
+    nt.links.new(tono.outputs["Color"], entrada_a)
+    nt.links.new(salida, bsdf.inputs["Base Color"])
+    return corre
+
+
+def crear_cinta(mat, mat_canto, mat_dorso, largo_tramo):
+    marcos = camino()
+    div = 6
     bm = bmesh.new()
+    uv = bm.loops.layers.uv.new("UVMap")
     filas = []
-    for i in range(pasos + 1):
-        s = CENTRO_S - total / 2 + total * i / pasos
-        filas.append([bm.verts.new((s, -ANCHO / 2 + ANCHO * j / DIVISIONES_ANCHO, 0.0))
-                      for j in range(DIVISIONES_ANCHO + 1)])
-    for a, b in zip(filas, filas[1:]):
-        for j in range(DIVISIONES_ANCHO):
-            bm.faces.new((a[j], b[j], b[j + 1], a[j + 1]))
-    enrollar(bm)
+    for p, b, n, s in marcos:
+        filas.append([(bm.verts.new(p + b * (-ANCHO / 2 + ANCHO * j / div)), s / largo_tramo, j / div)
+                      for j in range(div + 1)])
+    for fa, fb in zip(filas, filas[1:]):
+        for j in range(div):
+            esquinas = (fa[j], fb[j], fb[j + 1], fa[j + 1])
+            cara = bm.faces.new([e[0] for e in esquinas])
+            for loop, e in zip(cara.loops, esquinas):
+                loop[uv].uv = (e[1], e[2])
     bm.normal_update()
-    # que las normales miren hacia afuera de la hélice (donde va el texto)
     bm.faces.ensure_lookup_table()
-    _, _, _, n = marco(CENTRO_S - total / 2)
-    if bm.faces[0].normal.dot(n) < 0:
+    if bm.faces[0].normal.dot(marcos[0][2]) < 0:  # que la cara impresa mire hacia afuera
         bmesh.ops.reverse_faces(bm, faces=bm.faces[:])
     me = bpy.data.meshes.new("Cinta")
     bm.to_mesh(me)
@@ -315,13 +354,14 @@ def crear_cinta(padre, mat, mat_canto):
         p.use_smooth = True
     me.materials.append(mat)
     me.materials.append(mat_canto)
+    me.materials.append(mat_dorso)
     ob = bpy.data.objects.new("Cinta", me)
     bpy.context.scene.collection.objects.link(ob)
-    ob.parent = padre
     sol = ob.modifiers.new("Grosor", "SOLIDIFY")
     sol.thickness = GROSOR
-    sol.offset = -1.0  # crece hacia adentro: la cara impresa queda donde está el texto
+    sol.offset = -1.0  # crece hacia adentro: la cara impresa queda afuera
     sol.material_offset_rim = 1  # el corte muestra el alma clara de la cartulina
+    sol.material_offset = 2      # el dorso es cartulina lisa: está impresa de un solo lado
     return ob
 
 
@@ -383,7 +423,7 @@ def configurar_render():
     escena.render.resolution_x, escena.render.resolution_y = RESOLUCION
     escena.render.fps = FPS
     escena.frame_start = 1
-    escena.frame_end = FRAMES_POR_VUELTA * VUELTAS_LOOP
+    escena.frame_end = FPS * DURACION_LOOP
     try:
         escena.render.engine = MOTOR
     except TypeError:
@@ -408,40 +448,59 @@ def main():
     limpiar_escena()
     escena = bpy.context.scene
 
-    # Orientación: el eje de la hélice cruza el cuadro en diagonal, de arriba a la izquierda
+    # Orientación: el eje de la espiral cruza el cuadro en diagonal, de arriba a la izquierda
     # hacia abajo a la derecha, con una leve inclinación hacia cámara
     orient = bpy.data.objects.new("Orientacion", None)
     escena.collection.objects.link(orient)
     orient.rotation_mode = "QUATERNION"
     orient.rotation_quaternion = Vector((1.0, -0.3, -0.78)).to_track_quat("X", "Z")
 
-    # Tornillo: gira y avanza a la vez; la hélice se superpone consigo misma y el texto corre
-    tornillo = bpy.data.objects.new("Tornillo", None)
-    escena.collection.objects.link(tornillo)
-    tornillo.parent = orient
-    # Viento: un campo de ruido suave que viaja en círculo; deforma igual cinta y texto
+    mat_cinta = material_cartulina("Cartulina azul impresa", COLOR_CINTA, 0.88)
+    mat_canto = material_cartulina("Canto de cartulina", COLOR_CANTO, 0.92, fibra=0.6)
+    mat_dorso = material_cartulina("Dorso de cartulina", COLOR_CINTA, 0.9)
+    img, largo_tramo = imagen_del_texto()
+    corre = agregar_texto_impreso(mat_cinta, img, largo_tramo)
+    cinta = crear_cinta(mat_cinta, mat_canto, mat_dorso, largo_tramo)
+    cinta.parent = orient
+    ajustar_escala(mat_cinta, cinta.data)
+    ajustar_escala(mat_canto, cinta.data)
+    ajustar_escala(mat_dorso, cinta.data)
+    crear_ciclorama()
+
+    # Viento: un campo de ruido suave que viaja en círculo y hace respirar la cinta
     viento = bpy.data.objects.new("Viento", None)
     escena.collection.objects.link(viento)
+    textura_viento = bpy.data.textures.new("Viento", "CLOUDS")
+    textura_viento.noise_scale = ESCALA_VIENTO
+    textura_viento.noise_depth = 1
+    textura_viento.cloud_type = "COLOR"
+    mod = cinta.modifiers.new("Viento", "DISPLACE")
+    mod.texture = textura_viento
+    mod.texture_coords = "OBJECT"
+    mod.texture_coords_object = viento
+    mod.direction = "RGB_TO_XYZ"
+    mod.space = "GLOBAL"
+    mod.strength = VIENTO
+    mod.mid_level = 0.5
 
     # Se hornea una clave por frame (lineales entre sí); todo vuelve al inicio en el último
     # frame, así el loop empalma. Se restaura la preferencia del usuario al final.
-    total_frames = FRAMES_POR_VUELTA * VUELTAS_LOOP
+    total_frames = FPS * DURACION_LOOP
     base = orient.rotation_quaternion.copy()
+    desplazamiento = corre.inputs["Location"]
     prefs = bpy.context.preferences.edit
     interp_original = prefs.keyframe_new_interpolation_type
     prefs.keyframe_new_interpolation_type = "LINEAR"
     try:
         for f in range(total_frames + 1):
             u = f / total_frames
-            # avance con aceleraciones y frenadas; siempre hacia adelante y periódico
-            n = PULSOS_VELOCIDAD
-            avance = VUELTAS_LOOP * (u + VARIACION_VELOCIDAD * math.sin(2 * math.pi * n * u) / (2 * math.pi * n))
-            tornillo.rotation_euler[0] = 2 * math.pi * avance
-            tornillo.location[0] = PASO * avance
-            tornillo.keyframe_insert("rotation_euler", index=0, frame=f + 1)
-            tornillo.keyframe_insert("location", index=0, frame=f + 1)
-
             a = 2 * math.pi * u
+            # el texto avanza siempre hacia adelante, acelerando y frenando suave
+            n = PULSOS_VELOCIDAD
+            avance = TRAMOS_POR_LOOP * (u + VARIACION_VELOCIDAD * math.sin(n * a) / (n * 2 * math.pi))
+            desplazamiento.default_value[0] = -avance
+            desplazamiento.keyframe_insert("default_value", index=0, frame=f + 1)
+
             viento.location = (1.8 * math.cos(a), 1.8 * math.sin(a), 0.9 * math.sin(2 * a))
             viento.keyframe_insert("location", frame=f + 1)
 
@@ -452,33 +511,6 @@ def main():
             orient.keyframe_insert("rotation_quaternion", frame=f + 1)
     finally:
         prefs.keyframe_new_interpolation_type = interp_original
-
-    textura_viento = bpy.data.textures.new("Viento", "CLOUDS")
-    textura_viento.noise_scale = ESCALA_VIENTO
-    textura_viento.noise_depth = 1
-    textura_viento.cloud_type = "COLOR"
-
-    def ondular(ob):
-        mod = ob.modifiers.new("Viento", "DISPLACE")
-        mod.texture = textura_viento
-        mod.texture_coords = "OBJECT"
-        mod.texture_coords_object = viento
-        mod.direction = "RGB_TO_XYZ"
-        mod.space = "GLOBAL"  # mismo desplazamiento para la cinta y el texto que tiene encima
-        mod.strength = VIENTO
-        mod.mid_level = 0.5
-
-    mat_cinta = material_cartulina("Cartulina azul", COLOR_CINTA, 0.88)
-    mat_canto = material_cartulina("Canto de cartulina", COLOR_CANTO, 0.92, fibra=0.6)
-    mat_texto = material_cartulina("Tinta blanca", COLOR_TEXTO, 0.8)
-    cinta = crear_cinta(tornillo, mat_cinta, mat_canto)
-    texto = crear_texto(tornillo, mat_texto)
-    ajustar_escala(mat_cinta, cinta.data)
-    ajustar_escala(mat_canto, cinta.data)
-    ajustar_escala(mat_texto, texto.data)
-    ondular(cinta)
-    ondular(texto)
-    crear_ciclorama()
 
     # Cámara de frente, apenas desde arriba para que se vea el piso perderse en la pared
     cam_data = bpy.data.cameras.new("Camara")

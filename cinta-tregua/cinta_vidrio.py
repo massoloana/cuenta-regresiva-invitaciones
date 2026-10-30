@@ -30,10 +30,12 @@ import bpy
 from mathutils import Euler, Vector
 
 # ------------------------------------------------------------------ PARÁMETROS
-GRABADO = "TREGUA TALLER"
-FONT_PATH = ""            # ruta a un .ttf/.otf; vacío = tipografía por defecto de Blender
-ALTO_GRABADO = 0.42       # alto de las letras respecto del ancho de la cinta
-POSICION_GRABADO = 0.5    # dónde va a lo largo de la cinta (0 = abajo, 1 = arriba)
+GRABADO = "TREGUA TALLER"   # se repite a lo largo de toda la cinta
+SEPARACION = 1.1          # espacio entre repeticiones, en anchos de cinta
+# Tipografía: Archivo Expanded Medium (Google Fonts, licencia OFL), en la carpeta fuentes/ al
+# lado del script. Podés poner la ruta a otro .ttf/.otf; si no la encuentra, usa la de Blender.
+FONT_PATH = "fuentes/ArchivoExpanded-Medium.ttf"
+ALTO_GRABADO = 0.34       # alto de las mayúsculas respecto del ancho de la cinta
 
 # Degradé a lo largo de la cinta (de abajo hacia arriba)
 DEGRADE = [
@@ -49,6 +51,7 @@ RUGOSIDAD_GRABADO = 0.5   # el grabado: esmerilado
 TINTE = 1.6               # cuánto se satura el color en curvas y cantos (más = más color)
 GROSOR = 0.17             # espesor del acrílico
 BISEL = 0.035             # chanfle de los cantos (lo que brilla)
+CORTE_DIAGONAL = 0.7      # las puntas cortadas en diagonal (0 = corte recto)
 
 ANCHO = 0.95              # ancho de la cinta
 RADIO = 1.15              # radio de la espiral
@@ -117,17 +120,38 @@ def mezcla_valor(nt, factor, a, b):
 
 
 # ---------- Grabado: se renderiza el texto una vez a una imagen (máscara) ----------
+def buscar_fuente():
+    """Ruta absoluta a FONT_PATH: tal cual, al lado del script o al lado del .blend."""
+    if not FONT_PATH:
+        return None
+    candidatas = [FONT_PATH, bpy.path.abspath("//" + FONT_PATH)]
+    carpetas = []
+    if "__file__" in globals():
+        carpetas.append(os.path.dirname(os.path.abspath(__file__)))
+    carpetas += [os.path.dirname(bpy.path.abspath(t.filepath)) for t in bpy.data.texts if t.filepath]
+    candidatas += [os.path.join(c, FONT_PATH) for c in carpetas]
+    for ruta in candidatas:
+        if ruta and os.path.isfile(ruta):
+            return ruta
+    print("No encontré la tipografía", FONT_PATH, "- uso la de Blender")
+    return None
+
+
 def imagen_del_grabado():
-    """Renderiza GRABADO a un PNG con transparencia. Devuelve (imagen, largo en metros)."""
+    """Renderiza GRABADO a un PNG con transparencia. Devuelve (imagen, largo del tramo en metros).
+
+    El tramo se ajusta para que entre una cantidad exacta de veces en la cinta.
+    """
     principal = bpy.context.scene
     curva = bpy.data.curves.new("Grabado", type="FONT")
     curva.body = GRABADO
     curva.size = ALTO_GRABADO * ANCHO / 0.72  # el cuerpo de la fuente es más alto que la mayúscula
     curva.align_x = "LEFT"
     curva.align_y = "CENTER"
-    curva.space_character = 1.15
-    if FONT_PATH:
-        curva.font = bpy.data.fonts.load(FONT_PATH, check_existing=True)
+    curva.space_character = 1.12
+    fuente = buscar_fuente()
+    if fuente:
+        curva.font = bpy.data.fonts.load(fuente, check_existing=True)
     texto = bpy.data.objects.new("Grabado", curva)
     principal.collection.objects.link(texto)  # un momento en la escena, para convertirlo
     deps = bpy.context.evaluated_depsgraph_get()
@@ -135,16 +159,18 @@ def imagen_del_grabado():
     bpy.data.objects.remove(texto, do_unlink=True)
     bpy.data.curves.remove(curva)
 
-    margen = ANCHO * 0.4
     xs = [v.co.x for v in me.vertices]
     ys = [v.co.y for v in me.vertices]
+    largo_texto = max(xs) - min(xs)
+    repeticiones = max(1, round(LARGO_TOTAL / (largo_texto + SEPARACION * ANCHO)))
+    margen = (LARGO_TOTAL / repeticiones - largo_texto) / 2
     bm = bmesh.new()
     bm.from_mesh(me)
     bmesh.ops.translate(bm, verts=bm.verts,
                         vec=Vector((margen - min(xs), -(min(ys) + max(ys)) / 2, 0)))
     bm.to_mesh(me)
     bm.free()
-    largo = (max(xs) - min(xs)) + 2 * margen
+    largo = largo_texto + 2 * margen
 
     tmp = bpy.data.scenes.new("GrabadoTmp")
     plano = bpy.data.objects.new("GrabadoPlano", me)
@@ -255,13 +281,11 @@ def material_vidrio(nombre, grabado=None):
         return mat
 
     img, largo = grabado
-    inicio = POSICION_GRABADO * LARGO_TOTAL - largo / 2
     ubica = nt.nodes.new("ShaderNodeMapping")
     ubica.inputs["Scale"].default_value = (1 / largo, 1 / ANCHO, 1)
-    ubica.inputs["Location"].default_value = (-inicio / largo, 0, 0)
     tex = nt.nodes.new("ShaderNodeTexImage")
     tex.image = img
-    tex.extension = "CLIP"
+    tex.extension = "REPEAT"  # "TREGUA TALLER" en loop a lo largo de toda la cinta
     tex.interpolation = "Cubic"
     nt.links.new(coord.outputs["UV"], ubica.inputs["Vector"])
     nt.links.new(ubica.outputs["Vector"], tex.inputs["Vector"])
@@ -309,9 +333,7 @@ def crear_cinta(mat_frente, mat_resto):
     div = 6
     bm = bmesh.new()
     uv = bm.loops.layers.uv.new("UVMap")
-    filas = []
-    for i in range(pasos + 1):
-        s = LARGO_TOTAL * i / pasos
+    def punto(s, y):
         th = 2 * math.pi * s / LARGO_VUELTA
         z = PASO * th / (2 * math.pi) - PASO * VUELTAS / 2
         r = RADIO * (1 + 0.06 * math.sin(0.9 * th + 0.4))  # apenas despareja, hecha a mano
@@ -319,9 +341,23 @@ def crear_cinta(mat_frente, mat_resto):
         t = Vector((-r * math.sin(th), r * math.cos(th), PASO / (2 * math.pi))).normalized()
         n = Vector((math.cos(th), math.sin(th), 0.0))
         b = n.cross(t).normalized()  # T × B = N: el grabado se lee derecho desde afuera
-        # UV en metros: x a lo largo, y a lo ancho
-        filas.append([(bm.verts.new(c + b * (-ANCHO / 2 + ANCHO * j / div)), s, ANCHO * j / div)
-                      for j in range(div + 1)])
+        return c + b * y
+
+    # cada línea a lo largo arranca y termina un poco corrida: las puntas quedan en diagonal,
+    # así el corte no se ve de frente como un bloque y refracta la luz
+    corrimiento = CORTE_DIAGONAL * ANCHO
+    filas = []
+    for i in range(pasos + 1):
+        fila = []
+        for j in range(div + 1):
+            k = j / div
+            s0 = corrimiento * k
+            s1 = LARGO_TOTAL - corrimiento * (1 - k)
+            s = s0 + (s1 - s0) * i / pasos
+            y = -ANCHO / 2 + ANCHO * k
+            # UV en metros: x a lo largo, y a lo ancho
+            fila.append((bm.verts.new(punto(s, y)), s, ANCHO * k))
+        filas.append(fila)
     for fa, fb in zip(filas, filas[1:]):
         for j in range(div):
             esquinas = (fa[j], fb[j], fb[j + 1], fa[j + 1])
@@ -349,6 +385,15 @@ def crear_cinta(mat_frente, mat_resto):
     bis.segments = 3
     bis.limit_method = "ANGLE"
     bis.angle_limit = math.radians(40)
+    # normales pesadas por cara: caras planas limpias y puntas que se ven de vidrio, no grises
+    try:
+        if bpy.app.version < (4, 1, 0):
+            me.use_auto_smooth = True
+        wn = ob.modifiers.new("Normales", "WEIGHTED_NORMAL")
+        wn.keep_sharp = True
+        wn.weight = 100
+    except (AttributeError, RuntimeError):
+        pass
     return ob
 
 
@@ -452,13 +497,13 @@ def main():
 
     # Cenital: viene de arriba, enciende los bordes superiores y baña el fondo desde arriba
     luz("Cenital", 2600, (0, 2, 10), (0, 6, 0), 7, 4)
-    luz("Cenital fondo", 2300, (0, 10, 13), (0, 16, 6), 14, 3)
-    # Tiras verticales a los costados: líneas de luz blancas en cantos y caras
-    luz("Tira izquierda", 900, (-6, -1, 2), (0, 0, 0), 0.35, 10)
-    luz("Tira derecha", 900, (6, 0, 1), (0, 0, 0), 0.35, 10, (1.0, 0.92, 0.97))
-    # Paneles adelante: se reflejan como ventanas en las caras del vidrio
-    luz("Ventana", 260, (-2.5, -8, 4), (0, 0, 0), 2.2, 3.2)
-    luz("Ventana 2", 180, (3, -7, -1), (0, 0, 0), 1.6, 2.4, (0.92, 0.95, 1.0))
+    luz("Cenital fondo", 550, (0, 10, 13), (0, 16, 6), 14, 3, (1.0, 0.98, 0.96))
+    # Una tira nítida a la izquierda (la línea de luz en los cantos) y un softbox ancho a la
+    # derecha que deja un brillo grande y difuso sobre las caras
+    luz("Tira izquierda", 700, (-6, -1, 2), (0, 0, 0), 0.3, 10)
+    luz("Softbox derecho", 700, (6, -2, 1), (0, 0, 0), 3.5, 9, (1.0, 0.94, 0.98))
+    # Panel grande adelante: un reflejo amplio y suave, como una ventana
+    luz("Ventana", 160, (-3, -9, 4), (0, 0, 0), 5, 6)
     # rebote suave desde abajo, como una mesa blanca: las puntas no reflejan negro
     luz("Rebote", 900, (0, -3, -8), (0, 0, 0), 9, 6, (0.9, 0.95, 1.0))
 

@@ -46,6 +46,7 @@ DEGRADE = [
 ]
 COLOR_FONDO = "#8AB5E6"   # celeste de abajo (un poco más profundo: la cinta resalta)
 COLOR_FONDO_LUZ = "#EEF5FC"  # arriba, donde pega la luz cenital, casi blanco
+COLOR_HALO = "#D9BDF4"    # el vidrio tiñe apenas el aire detrás: halo rosado violeta
 
 RUGOSIDAD = 0.015         # el vidrio: pulido, casi espejo
 RUGOSIDAD_GRABADO = 0.5   # el grabado: esmerilado
@@ -315,7 +316,12 @@ def material_vidrio(nombre, grabado=None, claridad=0.32):
                          rango(sep.outputs["X"], LARGO_TOTAL - limpio - 0.5, LARGO_TOTAL - limpio, 1.0, 0.0))
     geo = nt.nodes.new("ShaderNodeNewGeometry")
     desde_adentro = rango(geo.outputs["Backfacing"], 0.0, 1.0, 1.0, 0.25)
-    mascara = multiplicar(multiplicar(tex.outputs["Alpha"], puntas), desde_adentro)
+    # mirado muy de costado (cerca de los cantos) el grabado se apaga: evita las copias
+    # refractadas que aparecían como rayitas debajo de las letras
+    costado = nt.nodes.new("ShaderNodeLayerWeight")
+    costado.inputs["Blend"].default_value = 0.5
+    de_frente = rango(costado.outputs["Facing"], 0.55, 0.9, 1.0, 0.2)
+    mascara = multiplicar(multiplicar(multiplicar(tex.outputs["Alpha"], puntas), desde_adentro), de_frente)
 
     # dentro del grabado: esmerilado con granito, más blanco, sin brillo de laca y apenas hundido
     grano = nt.nodes.new("ShaderNodeTexNoise")
@@ -330,13 +336,23 @@ def material_vidrio(nombre, grabado=None, claridad=0.32):
     rug.data_type = "FLOAT"
     nt.links.new(mascara, rug.inputs["Factor"])
     rug.inputs["A"].default_value = RUGOSIDAD
-    nt.links.new(rug_grabado.outputs["Result"], rug.inputs["B"])
+    # destellos del arenado: puntitos pulidos dentro del esmerilado que atrapan la luz
+    destellos = nt.nodes.new("ShaderNodeTexVoronoi")
+    destellos.inputs["Scale"].default_value = 520.0
+    nt.links.new(coord.outputs["Object"], destellos.inputs["Vector"])
+    punto_pulido = rango(destellos.outputs["Distance"], 0.0, 0.12, 1.0, 0.0)
+    rug_final = nt.nodes.new("ShaderNodeMix")
+    rug_final.data_type = "FLOAT"
+    nt.links.new(punto_pulido, rug_final.inputs["Factor"])
+    nt.links.new(rug_grabado.outputs["Result"], rug_final.inputs["A"])
+    rug_final.inputs["B"].default_value = 0.04
+    nt.links.new(rug_final.outputs["Result"], rug.inputs["B"])
     nt.links.new(rug.outputs["Result"], bsdf.inputs["Roughness"])
 
     # esmerilado con granito: el blanco varía apenas de punto a punto
     _, ga, gb, blanco = mezcla_color(nt, grano.outputs["Fac"])
-    ga.default_value = (0.84, 0.85, 0.95, 1.0)
-    gb.default_value = (1.0, 1.0, 1.0, 1.0)
+    ga.default_value = (0.74, 0.75, 0.86, 1.0)  # menos blanco: se ve el vidrio debajo
+    gb.default_value = (0.93, 0.93, 0.98, 1.0)
     _, ca, cb, color = mezcla_color(nt, 0.0)
     nt.links.new(mascara, ca.node.inputs["Factor"])
     nt.links.new(pastel, ca)
@@ -494,7 +510,29 @@ def crear_fondo():
     nt.links.new(luz_total.outputs["Value"], rampa.inputs["Fac"])
     emision = nt.nodes.new("ShaderNodeEmission")
     salida = nt.nodes.new("ShaderNodeOutputMaterial")
-    nt.links.new(rampa.outputs["Color"], emision.inputs["Color"])
+    # halo de color detrás de la cinta, redondo y muy suave
+    distancia = nt.nodes.new("ShaderNodeVectorMath")
+    distancia.operation = "DISTANCE"
+    distancia.inputs[1].default_value = (0.5, 0.52, 0.0)
+    plano = nt.nodes.new("ShaderNodeVectorMath")
+    plano.operation = "MULTIPLY"
+    plano.inputs[1].default_value = (1.0, 1.0, 0.0)
+    nt.links.new(coord.outputs["Generated"], plano.inputs[0])
+    nt.links.new(plano.outputs["Vector"], distancia.inputs[0])
+    halo = nt.nodes.new("ShaderNodeMapRange")
+    halo.inputs["From Min"].default_value, halo.inputs["From Max"].default_value = 0.11, 0.0
+    halo.inputs["To Max"].default_value = 0.6
+    nt.links.new(distancia.outputs["Value"], halo.inputs["Value"])
+    halo_suave = nt.nodes.new("ShaderNodeMath")
+    halo_suave.operation = "POWER"
+    halo_suave.inputs[1].default_value = 1.6
+    nt.links.new(halo.outputs["Result"], halo_suave.inputs[0])
+    tinte = nt.nodes.new("ShaderNodeMix")
+    tinte.data_type = "RGBA"
+    nt.links.new(halo_suave.outputs["Value"], tinte.inputs["Factor"])
+    nt.links.new(rampa.outputs["Color"], next(i for i in tinte.inputs if i.identifier == "A_Color"))
+    next(i for i in tinte.inputs if i.identifier == "B_Color").default_value = hex_a_lineal(COLOR_HALO)
+    nt.links.new(next(o for o in tinte.outputs if o.identifier == "Result_Color"), emision.inputs["Color"])
     nt.links.new(emision.outputs["Emission"], salida.inputs["Surface"])
     me.materials.append(mat)
     return ob
@@ -561,7 +599,7 @@ def configurar_resplandor(escena):
     ruido.texture = textura
     grano = nt.nodes.new("CompositorNodeMixRGB")
     grano.blend_type = "OVERLAY"
-    grano.inputs["Fac"].default_value = 0.05
+    grano.inputs["Fac"].default_value = 0.03
     nt.links.new(brillo.outputs["Image"], grano.inputs[1])
     nt.links.new(ruido.outputs["Color"], grano.inputs[2])
     nt.links.new(grano.outputs["Image"], salida.inputs["Image"])
@@ -637,6 +675,8 @@ def main():
     luz("Ventana", 160, (-3, -9, 4), (0, 0, 0), 5, 6)
     # rebote suave desde abajo, como una mesa blanca: las puntas no reflejan negro
     luz("Rebote", 1300, (0, -3, -8), (0, 0, 0), 9, 6, (0.9, 0.95, 1.0))
+    # acento chico de costado y abajo: marca el volumen de los cantos redondeados de las puntas
+    luz("Acento puntas", 120, (3.5, 2.5, -5), (0.8, 0, -2.2), 0.8, 0.8, (1.0, 0.92, 0.98))
 
     configurar_mundo()
     configurar_render()

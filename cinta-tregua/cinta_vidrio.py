@@ -41,17 +41,17 @@ ALTO_GRABADO = 0.34       # alto de las mayúsculas respecto del ancho de la cin
 DEGRADE = [
     (0.00, "#FF7AD0"),   # rosa
     (0.38, "#E8399C"),   # magenta
-    (0.66, "#8B4DFF"),   # violeta
+    (0.66, "#7638FF"),   # violeta intenso
     (1.00, "#7EA2FF"),   # lavanda azulada
 ]
-COLOR_FONDO = "#9CC3EE"   # celeste de abajo
+COLOR_FONDO = "#8AB5E6"   # celeste de abajo (un poco más profundo: la cinta resalta)
 COLOR_FONDO_LUZ = "#EEF5FC"  # arriba, donde pega la luz cenital, casi blanco
 
 RUGOSIDAD = 0.015         # el vidrio: pulido, casi espejo
 RUGOSIDAD_GRABADO = 0.5   # el grabado: esmerilado
 TINTE = 1.6               # cuánto se satura el color en curvas y cantos (más = más color)
 GROSOR = 0.17             # espesor del acrílico
-BISEL = 0.035             # chanfle de los cantos (lo que brilla)
+BISEL = 0.05              # redondeo de los cantos (lo que brilla)
 CORTE_DIAGONAL = 0.7      # las puntas cortadas en diagonal (0 = corte recto)
 
 ANCHO = 0.95              # ancho de la cinta
@@ -225,7 +225,7 @@ def imagen_del_grabado():
 
 
 # ---------- Material: acrílico pulido con degradé; opcionalmente con el grabado ----------
-def material_vidrio(nombre, grabado=None, claridad=0.4):
+def material_vidrio(nombre, grabado=None, claridad=0.32):
     """claridad: cuánto se aclara el color de frente (0 = color pleno, 1 = blanco)."""
     mat = bpy.data.materials.new(nombre)
     mat.use_nodes = True
@@ -319,7 +319,7 @@ def material_vidrio(nombre, grabado=None, claridad=0.4):
 
     # dentro del grabado: esmerilado con granito, más blanco, sin brillo de laca y apenas hundido
     grano = nt.nodes.new("ShaderNodeTexNoise")
-    grano.inputs["Scale"].default_value = 900.0
+    grano.inputs["Scale"].default_value = 450.0
     grano.inputs["Detail"].default_value = 3.0
     rug_grabado = nt.nodes.new("ShaderNodeMapRange")
     rug_grabado.inputs["To Min"].default_value = RUGOSIDAD_GRABADO * 0.75
@@ -354,11 +354,11 @@ def material_vidrio(nombre, grabado=None, claridad=0.4):
     nt.links.new(mascara, hundido.inputs["Height"])
     # micro relieve del arenado, sólo dentro de las letras
     arena = nt.nodes.new("ShaderNodeTexNoise")
-    arena.inputs["Scale"].default_value = 2200.0
+    arena.inputs["Scale"].default_value = 950.0
     arena.inputs["Detail"].default_value = 2.0
     nt.links.new(coord.outputs["Object"], arena.inputs["Vector"])
     granito = nt.nodes.new("ShaderNodeBump")
-    granito.inputs["Strength"].default_value = 0.35
+    granito.inputs["Strength"].default_value = 0.55
     granito.inputs["Distance"].default_value = 0.002
     nt.links.new(multiplicar(arena.outputs["Fac"], mascara), granito.inputs["Height"])
     nt.links.new(hundido.outputs["Normal"], granito.inputs["Normal"])
@@ -432,7 +432,7 @@ def crear_cinta(mat_frente, mat_resto, mat_puntas):
 
     bis = ob.modifiers.new("Bisel", "BEVEL")
     bis.width = BISEL
-    bis.segments = 6  # bisel bien redondeado: las líneas de luz no se cortan en facetas
+    bis.segments = 10  # bisel redondeado y suave: las líneas de luz no se cortan en facetas
     bis.profile = 0.5
     bis.limit_method = "ANGLE"
     bis.angle_limit = math.radians(40)
@@ -549,13 +549,22 @@ def configurar_resplandor(escena):
     try:
         brillo.glare_type = "FOG_GLOW"
         brillo.quality = "HIGH"
-        brillo.threshold = 0.8
-        brillo.mix = -0.7   # -1 = sólo la imagen; cerca de -1 = resplandor sutil
+        brillo.threshold = 0.7
+        brillo.mix = -0.5   # -1 = sólo la imagen; -0.5 = halo suave y visible
         brillo.size = 8
     except (AttributeError, TypeError):
         pass  # versiones nuevas cambiaron estas opciones: queda el resplandor por defecto
     nt.links.new(capas.outputs["Image"], brillo.inputs["Image"])
-    nt.links.new(brillo.outputs["Image"], salida.inputs["Image"])
+    # grano fotográfico muy sutil: le saca lo digital al fondo y evita cortes en el degradé
+    textura = bpy.data.textures.get("Grano de foto") or bpy.data.textures.new("Grano de foto", "NOISE")
+    ruido = nt.nodes.new("CompositorNodeTexture")
+    ruido.texture = textura
+    grano = nt.nodes.new("CompositorNodeMixRGB")
+    grano.blend_type = "OVERLAY"
+    grano.inputs["Fac"].default_value = 0.05
+    nt.links.new(brillo.outputs["Image"], grano.inputs[1])
+    nt.links.new(ruido.outputs["Color"], grano.inputs[2])
+    nt.links.new(grano.outputs["Image"], salida.inputs["Image"])
 
 
 def main():
@@ -568,9 +577,21 @@ def main():
     grabado = imagen_del_grabado()
     # puntas: corte satinado, como el acrílico cortado y apenas lijado; junta luz y brilla
     puntas = material_vidrio("Corte satinado", claridad=0.35)
-    pbsdf = puntas.node_tree.nodes.get("Principled BSDF")
-    pbsdf.inputs["Roughness"].default_value = 0.35
-    entrada(pbsdf, "Transmission Weight", "Transmission").default_value = 0.35  # lechoso
+    pnt = puntas.node_tree
+    pbsdf = pnt.nodes.get("Principled BSDF")
+    pbsdf.inputs["Roughness"].default_value = 0.28
+    # de frente el corte deja ver adentro; hacia los bordes redondeados se vuelve lechoso y claro
+    frente = pnt.nodes.new("ShaderNodeLayerWeight")
+    frente.inputs["Blend"].default_value = 0.4
+    transp = pnt.nodes.new("ShaderNodeMapRange")
+    transp.inputs["To Min"].default_value, transp.inputs["To Max"].default_value = 0.8, 0.25
+    pnt.links.new(frente.outputs["Facing"], transp.inputs["Value"])
+    pnt.links.new(transp.outputs["Result"], entrada(pbsdf, "Transmission Weight", "Transmission"))
+    color_actual = pbsdf.inputs["Base Color"].links[0].from_socket
+    _, ba, bb, borde = mezcla_color(pnt, frente.outputs["Facing"])
+    pnt.links.new(color_actual, ba)
+    bb.default_value = (1.0, 0.9, 0.97, 1.0)
+    pnt.links.new(borde, pbsdf.inputs["Base Color"])
     coat_p = entrada(pbsdf, "Coat Weight", "Clearcoat")
     if coat_p:
         coat_p.default_value = 0.0

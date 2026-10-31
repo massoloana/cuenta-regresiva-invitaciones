@@ -36,6 +36,7 @@ SEPARACION = 1.1          # espacio entre repeticiones, en anchos de cinta
 # lado del script. Podés poner la ruta a otro .ttf/.otf; si no la encuentra, usa la de Blender.
 FONT_PATH = "fuentes/ArchivoExpanded-Medium.ttf"
 ALTO_GRABADO = 0.34       # alto de las mayúsculas respecto del ancho de la cinta
+CORRER_GRABADO = -0.6     # corre el texto a lo largo de la cinta (metros), para el encuadre
 
 # Degradé a lo largo de la cinta (de abajo hacia arriba)
 DEGRADE = [
@@ -287,7 +288,7 @@ def material_vidrio(nombre, grabado=None, claridad=0.32):
     ubica = nt.nodes.new("ShaderNodeMapping")
     ubica.inputs["Scale"].default_value = (1 / largo, 1 / ANCHO, 1)
     # corrido medio corte diagonal: las palabras completas arrancan después de la punta
-    ubica.inputs["Location"].default_value = (-(CORTE_DIAGONAL * ANCHO / 2) / largo, 0, 0)
+    ubica.inputs["Location"].default_value = (-(CORTE_DIAGONAL * ANCHO / 2 + CORRER_GRABADO) / largo, 0, 0)
     tex = nt.nodes.new("ShaderNodeTexImage")
     tex.image = img
     tex.extension = "REPEAT"  # "TREGUA TALLER" en loop a lo largo de toda la cinta

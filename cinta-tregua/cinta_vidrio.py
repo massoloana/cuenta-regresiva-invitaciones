@@ -44,7 +44,8 @@ DEGRADE = [
     (0.66, "#8B4DFF"),   # violeta
     (1.00, "#7EA2FF"),   # lavanda azulada
 ]
-COLOR_FONDO = "#A9D3F7"   # celeste
+COLOR_FONDO = "#9CC3EE"   # celeste de abajo
+COLOR_FONDO_LUZ = "#EEF5FC"  # arriba, donde pega la luz cenital, casi blanco
 
 RUGOSIDAD = 0.015         # el vidrio: pulido, casi espejo
 RUGOSIDAD_GRABADO = 0.5   # el grabado: esmerilado
@@ -224,7 +225,8 @@ def imagen_del_grabado():
 
 
 # ---------- Material: acrílico pulido con degradé; opcionalmente con el grabado ----------
-def material_vidrio(nombre, grabado=None):
+def material_vidrio(nombre, grabado=None, claridad=0.4):
+    """claridad: cuánto se aclara el color de frente (0 = color pleno, 1 = blanco)."""
     mat = bpy.data.materials.new(nombre)
     mat.use_nodes = True
     nt = mat.node_tree
@@ -262,7 +264,7 @@ def material_vidrio(nombre, grabado=None):
 
     # de frente el vidrio se ve claro (tono pastel); de costado, en curvas y cantos, donde se
     # mira a través de más espesor, el color se satura como en el acrílico
-    _, pa, pb, claro = mezcla_color(nt, 0.4)
+    _, pa, pb, claro = mezcla_color(nt, claridad)
     pb.default_value = (1, 1, 1, 1)
     nt.links.new(rampa.outputs["Color"], pa)
     angulo = nt.nodes.new("ShaderNodeLayerWeight")
@@ -283,13 +285,37 @@ def material_vidrio(nombre, grabado=None):
     img, largo = grabado
     ubica = nt.nodes.new("ShaderNodeMapping")
     ubica.inputs["Scale"].default_value = (1 / largo, 1 / ANCHO, 1)
+    # corrido medio corte diagonal: las palabras completas arrancan después de la punta
+    ubica.inputs["Location"].default_value = (-(CORTE_DIAGONAL * ANCHO / 2) / largo, 0, 0)
     tex = nt.nodes.new("ShaderNodeTexImage")
     tex.image = img
     tex.extension = "REPEAT"  # "TREGUA TALLER" en loop a lo largo de toda la cinta
     tex.interpolation = "Cubic"
     nt.links.new(coord.outputs["UV"], ubica.inputs["Vector"])
     nt.links.new(ubica.outputs["Vector"], tex.inputs["Vector"])
-    mascara = tex.outputs["Alpha"]
+    # la máscara del grabado se apaga cerca de las puntas (el canto queda limpio) y se
+    # suaviza vista desde adentro del vidrio (el texto espejado queda como una sombra leve)
+    def rango(valor, desde, hasta, a, b):
+        m = nt.nodes.new("ShaderNodeMapRange")
+        m.clamp = True
+        m.inputs["From Min"].default_value, m.inputs["From Max"].default_value = desde, hasta
+        m.inputs["To Min"].default_value, m.inputs["To Max"].default_value = a, b
+        nt.links.new(valor, m.inputs["Value"])
+        return m.outputs["Result"]
+
+    def multiplicar(a, b):
+        m = nt.nodes.new("ShaderNodeMath")
+        m.operation = "MULTIPLY"
+        nt.links.new(a, m.inputs[0])
+        nt.links.new(b, m.inputs[1])
+        return m.outputs["Value"]
+
+    limpio = CORTE_DIAGONAL * ANCHO * 0.5
+    puntas = multiplicar(rango(sep.outputs["X"], limpio, limpio + 0.5, 0.0, 1.0),
+                         rango(sep.outputs["X"], LARGO_TOTAL - limpio - 0.5, LARGO_TOTAL - limpio, 1.0, 0.0))
+    geo = nt.nodes.new("ShaderNodeNewGeometry")
+    desde_adentro = rango(geo.outputs["Backfacing"], 0.0, 1.0, 1.0, 0.25)
+    mascara = multiplicar(multiplicar(tex.outputs["Alpha"], puntas), desde_adentro)
 
     # dentro del grabado: esmerilado con granito, más blanco, sin brillo de laca y apenas hundido
     grano = nt.nodes.new("ShaderNodeTexNoise")
@@ -307,10 +333,14 @@ def material_vidrio(nombre, grabado=None):
     nt.links.new(rug_grabado.outputs["Result"], rug.inputs["B"])
     nt.links.new(rug.outputs["Result"], bsdf.inputs["Roughness"])
 
+    # esmerilado con granito: el blanco varía apenas de punto a punto
+    _, ga, gb, blanco = mezcla_color(nt, grano.outputs["Fac"])
+    ga.default_value = (0.84, 0.85, 0.95, 1.0)
+    gb.default_value = (1.0, 1.0, 1.0, 1.0)
     _, ca, cb, color = mezcla_color(nt, 0.0)
     nt.links.new(mascara, ca.node.inputs["Factor"])
     nt.links.new(pastel, ca)
-    cb.default_value = (0.93, 0.93, 1.0, 1.0)
+    nt.links.new(blanco, cb)
     nt.links.new(color, bsdf.inputs["Base Color"])
 
     if coat:
@@ -322,18 +352,29 @@ def material_vidrio(nombre, grabado=None):
     hundido.inputs["Strength"].default_value = 0.6
     hundido.inputs["Distance"].default_value = 0.01
     nt.links.new(mascara, hundido.inputs["Height"])
-    nt.links.new(hundido.outputs["Normal"], bsdf.inputs["Normal"])
+    # micro relieve del arenado, sólo dentro de las letras
+    arena = nt.nodes.new("ShaderNodeTexNoise")
+    arena.inputs["Scale"].default_value = 2200.0
+    arena.inputs["Detail"].default_value = 2.0
+    nt.links.new(coord.outputs["Object"], arena.inputs["Vector"])
+    granito = nt.nodes.new("ShaderNodeBump")
+    granito.inputs["Strength"].default_value = 0.35
+    granito.inputs["Distance"].default_value = 0.002
+    nt.links.new(multiplicar(arena.outputs["Fac"], mascara), granito.inputs["Height"])
+    nt.links.new(hundido.outputs["Normal"], granito.inputs["Normal"])
+    nt.links.new(granito.outputs["Normal"], bsdf.inputs["Normal"])
     mat.diffuse_color = hex_a_lineal(DEGRADE[2][1])
     return mat
 
 
 # ---------- Cinta: banda sobre una espiral vertical, con grosor y bisel ----------
-def crear_cinta(mat_frente, mat_resto):
+def crear_cinta(mat_frente, mat_resto, mat_puntas):
+    """Sólido cerrado: cara de afuera (grabada), cara de adentro y cantos, y las dos puntas."""
     pasos = int(LARGO_TOTAL / 0.02)
     div = 6
     bm = bmesh.new()
     uv = bm.loops.layers.uv.new("UVMap")
-    def punto(s, y):
+    def punto(s, y, d=0.0):
         th = 2 * math.pi * s / LARGO_VUELTA
         z = PASO * th / (2 * math.pi) - PASO * VUELTAS / 2
         r = RADIO * (1 + 0.06 * math.sin(0.9 * th + 0.4))  # apenas despareja, hecha a mano
@@ -341,14 +382,14 @@ def crear_cinta(mat_frente, mat_resto):
         t = Vector((-r * math.sin(th), r * math.cos(th), PASO / (2 * math.pi))).normalized()
         n = Vector((math.cos(th), math.sin(th), 0.0))
         b = n.cross(t).normalized()  # T × B = N: el grabado se lee derecho desde afuera
-        return c + b * y
+        return c + b * y - n * d   # d: hacia adentro, para el espesor
 
     # cada línea a lo largo arranca y termina un poco corrida: las puntas quedan en diagonal,
     # así el corte no se ve de frente como un bloque y refracta la luz
     corrimiento = CORTE_DIAGONAL * ANCHO
-    filas = []
+    afuera, adentro = [], []
     for i in range(pasos + 1):
-        fila = []
+        fa, fi = [], []
         for j in range(div + 1):
             k = j / div
             s0 = corrimiento * k
@@ -356,14 +397,28 @@ def crear_cinta(mat_frente, mat_resto):
             s = s0 + (s1 - s0) * i / pasos
             y = -ANCHO / 2 + ANCHO * k
             # UV en metros: x a lo largo, y a lo ancho
-            fila.append((bm.verts.new(punto(s, y)), s, ANCHO * k))
-        filas.append(fila)
-    for fa, fb in zip(filas, filas[1:]):
+            fa.append((bm.verts.new(punto(s, y)), s, ANCHO * k))
+            fi.append((bm.verts.new(punto(s, y, GROSOR)), s, ANCHO * k))
+        afuera.append(fa)
+        adentro.append(fi)
+
+    def cara(esquinas, material):
+        c = bm.faces.new([e[0] for e in esquinas])
+        c.material_index = material
+        for loop, e in zip(c.loops, esquinas):
+            loop[uv].uv = (e[1], e[2])
+
+    for i in range(pasos):
         for j in range(div):
-            esquinas = (fa[j], fb[j], fb[j + 1], fa[j + 1])
-            cara = bm.faces.new([e[0] for e in esquinas])
-            for loop, e in zip(cara.loops, esquinas):
-                loop[uv].uv = (e[1], e[2])
+            cara((afuera[i][j], afuera[i + 1][j], afuera[i + 1][j + 1], afuera[i][j + 1]), 0)
+            cara((adentro[i][j], adentro[i][j + 1], adentro[i + 1][j + 1], adentro[i + 1][j]), 1)
+        for j in (0, div):  # cantos largos
+            cara((afuera[i][j], adentro[i][j], adentro[i + 1][j], afuera[i + 1][j]), 1)
+    for i in (0, pasos):    # puntas
+        for j in range(div):
+            cara((afuera[i][j], afuera[i][j + 1], adentro[i][j + 1], adentro[i][j]), 2)
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])  # todas hacia afuera del sólido
+
     me = bpy.data.meshes.new("CintaVidrio")
     bm.to_mesh(me)
     bm.free()
@@ -371,18 +426,14 @@ def crear_cinta(mat_frente, mat_resto):
         p.use_smooth = True
     me.materials.append(mat_frente)
     me.materials.append(mat_resto)
+    me.materials.append(mat_puntas)
     ob = bpy.data.objects.new("CintaVidrio", me)
     bpy.context.scene.collection.objects.link(ob)
 
-    sol = ob.modifiers.new("Grosor", "SOLIDIFY")
-    sol.thickness = GROSOR
-    sol.offset = -1.0             # crece hacia adentro: la cara de afuera es la del grabado
-    sol.use_even_offset = True
-    sol.material_offset = 1       # la cara de adentro, sin grabado
-    sol.material_offset_rim = 1   # los cantos, sin grabado
     bis = ob.modifiers.new("Bisel", "BEVEL")
     bis.width = BISEL
-    bis.segments = 3
+    bis.segments = 6  # bisel bien redondeado: las líneas de luz no se cortan en facetas
+    bis.profile = 0.5
     bis.limit_method = "ANGLE"
     bis.angle_limit = math.radians(40)
     # normales pesadas por cara: caras planas limpias y puntas que se ven de vidrio, no grises
@@ -397,7 +448,7 @@ def crear_cinta(mat_frente, mat_resto):
     return ob
 
 
-# ---------- Fondo celeste lejano, iluminado desde arriba ----------
+# ---------- Fondo celeste lejano, que se aclara arriba como si lo bañara un cenital ----------
 def crear_fondo():
     me = bpy.data.meshes.new("Fondo")
     bm = bmesh.new()
@@ -409,14 +460,42 @@ def crear_fondo():
     ob.location = (0, 16, 0)
     ob.rotation_euler = (math.pi / 2, 0, 0)
 
+    # color exacto (emisión): un degradé vertical más un brillo redondo arriba al centro
     mat = bpy.data.materials.new("Fondo celeste")
     mat.use_nodes = True
-    bsdf = mat.node_tree.nodes.get("Principled BSDF")
-    bsdf.inputs["Base Color"].default_value = hex_a_lineal(COLOR_FONDO)
-    bsdf.inputs["Roughness"].default_value = 1.0
-    spec = entrada(bsdf, "Specular IOR Level", "Specular")
-    if spec:
-        spec.default_value = 0.0
+    nt = mat.node_tree
+    nt.nodes.clear()
+    coord = nt.nodes.new("ShaderNodeTexCoord")
+    sep = nt.nodes.new("ShaderNodeSeparateXYZ")
+    # el plano está rotado: la Y de "Generated" es la altura en cuadro
+    vertical = nt.nodes.new("ShaderNodeMapRange")
+    vertical.inputs["From Min"].default_value, vertical.inputs["From Max"].default_value = 0.3, 0.75
+    nt.links.new(coord.outputs["Generated"], sep.inputs["Vector"])
+    nt.links.new(sep.outputs["Y"], vertical.inputs["Value"])
+    centro = nt.nodes.new("ShaderNodeMapRange")  # más luz al centro que en los costados
+    centro.inputs["From Min"].default_value, centro.inputs["From Max"].default_value = 0.5, 0.15
+    resta = nt.nodes.new("ShaderNodeMath")
+    resta.operation = "ABSOLUTE"
+    menos = nt.nodes.new("ShaderNodeMath")
+    menos.operation = "SUBTRACT"
+    menos.inputs[1].default_value = 0.5
+    nt.links.new(sep.outputs["X"], menos.inputs[0])
+    nt.links.new(menos.outputs["Value"], resta.inputs[0])
+    nt.links.new(resta.outputs["Value"], centro.inputs["Value"])
+    luz_total = nt.nodes.new("ShaderNodeMath")
+    luz_total.operation = "MULTIPLY"
+    nt.links.new(vertical.outputs["Result"], luz_total.inputs[0])
+    nt.links.new(centro.outputs["Result"], luz_total.inputs[1])
+    rampa = nt.nodes.new("ShaderNodeValToRGB")
+    els = rampa.color_ramp.elements
+    els[0].color = hex_a_lineal(COLOR_FONDO)
+    els[1].color = hex_a_lineal(COLOR_FONDO_LUZ)
+    rampa.color_ramp.interpolation = "EASE"
+    nt.links.new(luz_total.outputs["Value"], rampa.inputs["Fac"])
+    emision = nt.nodes.new("ShaderNodeEmission")
+    salida = nt.nodes.new("ShaderNodeOutputMaterial")
+    nt.links.new(rampa.outputs["Color"], emision.inputs["Color"])
+    nt.links.new(emision.outputs["Emission"], salida.inputs["Surface"])
     me.materials.append(mat)
     return ob
 
@@ -426,8 +505,8 @@ def configurar_mundo():
     bpy.context.scene.world = mundo
     mundo.use_nodes = True
     fondo = mundo.node_tree.nodes.get("Background")
-    fondo.inputs["Color"].default_value = (0.75, 0.86, 1.0, 1.0)  # rebote celeste del estudio
-    fondo.inputs["Strength"].default_value = 0.35
+    fondo.inputs["Color"].default_value = (0.9, 0.93, 1.0, 1.0)  # estudio blanco, apenas azulado
+    fondo.inputs["Strength"].default_value = 0.8  # más luz ambiente: los cantos no reflejan oscuro
 
 
 def configurar_render():
@@ -456,6 +535,27 @@ def configurar_render():
     except (TypeError, AttributeError):
         pass
     escena.render.filepath = "//cinta_vidrio_"
+    configurar_resplandor(escena)
+
+
+def configurar_resplandor(escena):
+    """Bloom suave en las luces altas, como el halo de una foto (compositor)."""
+    escena.use_nodes = True
+    nt = escena.node_tree
+    nt.nodes.clear()
+    capas = nt.nodes.new("CompositorNodeRLayers")
+    brillo = nt.nodes.new("CompositorNodeGlare")
+    salida = nt.nodes.new("CompositorNodeComposite")
+    try:
+        brillo.glare_type = "FOG_GLOW"
+        brillo.quality = "HIGH"
+        brillo.threshold = 0.8
+        brillo.mix = -0.7   # -1 = sólo la imagen; cerca de -1 = resplandor sutil
+        brillo.size = 8
+    except (AttributeError, TypeError):
+        pass  # versiones nuevas cambiaron estas opciones: queda el resplandor por defecto
+    nt.links.new(capas.outputs["Image"], brillo.inputs["Image"])
+    nt.links.new(brillo.outputs["Image"], salida.inputs["Image"])
 
 
 def main():
@@ -466,14 +566,25 @@ def main():
     escena.collection.objects.link(pivote)
 
     grabado = imagen_del_grabado()
+    # puntas: corte satinado, como el acrílico cortado y apenas lijado; junta luz y brilla
+    puntas = material_vidrio("Corte satinado", claridad=0.35)
+    pbsdf = puntas.node_tree.nodes.get("Principled BSDF")
+    pbsdf.inputs["Roughness"].default_value = 0.35
+    entrada(pbsdf, "Transmission Weight", "Transmission").default_value = 0.35  # lechoso
+    coat_p = entrada(pbsdf, "Coat Weight", "Clearcoat")
+    if coat_p:
+        coat_p.default_value = 0.0
     cinta = crear_cinta(material_vidrio("Vidrio con grabado", grabado),
-                        material_vidrio("Vidrio"))
+                        material_vidrio("Vidrio", claridad=0.12),  # cantos y dorso: color más intenso
+                        puntas)
     cinta.parent = pivote
     crear_fondo()
 
     # Cámara: lente larga, apenas desde arriba
     cam_data = bpy.data.cameras.new("Camara")
-    cam_data.lens = 85
+    cam_data.lens = 78
+    cam_data.shift_x = 0.035   # la espiral queda centrada y con aire abajo
+    cam_data.shift_y = -0.02
     cam_data.dof.use_dof = True
     cam_data.dof.focus_distance = 16.0
     cam_data.dof.aperture_fstop = 5.6
@@ -497,15 +608,14 @@ def main():
 
     # Cenital: viene de arriba, enciende los bordes superiores y baña el fondo desde arriba
     luz("Cenital", 2600, (0, 2, 10), (0, 6, 0), 7, 4)
-    luz("Cenital fondo", 550, (0, 10, 13), (0, 16, 6), 14, 3, (1.0, 0.98, 0.96))
     # Una tira nítida a la izquierda (la línea de luz en los cantos) y un softbox ancho a la
     # derecha que deja un brillo grande y difuso sobre las caras
-    luz("Tira izquierda", 700, (-6, -1, 2), (0, 0, 0), 0.3, 10)
-    luz("Softbox derecho", 700, (6, -2, 1), (0, 0, 0), 3.5, 9, (1.0, 0.94, 0.98))
+    luz("Tira izquierda", 650, (-6, -1, 2), (0, 0, 0), 0.6, 12)
+    luz("Softbox derecho", 420, (7, -2.5, 1), (0, 0, 0), 5, 10, (1.0, 0.94, 0.98))
     # Panel grande adelante: un reflejo amplio y suave, como una ventana
     luz("Ventana", 160, (-3, -9, 4), (0, 0, 0), 5, 6)
     # rebote suave desde abajo, como una mesa blanca: las puntas no reflejan negro
-    luz("Rebote", 900, (0, -3, -8), (0, 0, 0), 9, 6, (0.9, 0.95, 1.0))
+    luz("Rebote", 1300, (0, -3, -8), (0, 0, 0), 9, 6, (0.9, 0.95, 1.0))
 
     configurar_mundo()
     configurar_render()

@@ -87,7 +87,7 @@
       id="root"
       data-composition-id="main"
       data-start="0"
-      data-duration="44"
+      data-duration="46.6"
       data-width="1920"
       data-height="1080"
     >
@@ -137,7 +137,7 @@
         data-composition-id="productos"
         data-composition-src="compositions/productos.html"
         data-start="23.0"
-        data-duration="15"
+        data-duration="17.6"
         data-track-index="1"
         data-track-kind="graphics"
         data-width="1920"
@@ -149,7 +149,7 @@
         id="cierre"
         data-composition-id="cierre"
         data-composition-src="compositions/cierre.html"
-        data-start="38.0"
+        data-start="40.6"
         data-duration="6.0"
         data-track-index="1"
         data-track-kind="graphics"
@@ -158,7 +158,7 @@
         style="z-index: 6"
       ></div>
 
-      <div id="hud" class="clip" data-start="0" data-duration="38" data-track-index="2" data-track-kind="graphics">
+      <div id="hud" class="clip" data-start="0" data-duration="40.6" data-track-index="2" data-track-kind="graphics">
         <div id="hud-brand"><i></i><span data-var-text="rol">Realizador/a de piezas gráficas y audiovisuales para Redes Sociales</span></div>
         <div id="hud-year" data-var-text="seccion">Identidad visual</div>
       </div>
@@ -168,7 +168,7 @@
       const tl = gsap.timeline({ paused: true });
       tl.fromTo("#hud-brand", { opacity: 0, filter: "blur(6px)" }, { opacity: 1, filter: "blur(0px)", duration: 0.5, ease: "power2.out" }, 0.3);
       tl.fromTo("#hud-year", { opacity: 0, filter: "blur(6px)" }, { opacity: 1, filter: "blur(0px)", duration: 0.5, ease: "power2.out" }, 0.45);
-      tl.to(["#hud-brand", "#hud-year"], { opacity: 0, filter: "blur(6px)", duration: 0.25, ease: "power2.in" }, 37.55);
+      tl.to(["#hud-brand", "#hud-year"], { opacity: 0, filter: "blur(6px)", duration: 0.25, ease: "power2.in" }, 40.15);
       window.__timelines["main"] = tl;
       tl.seek(0);
     </script>

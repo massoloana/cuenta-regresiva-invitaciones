@@ -72,9 +72,9 @@
       top: 0;
       width: 1920px;
       height: 1080px;
-      opacity: 0;
     }
-    .pr-prod img { position: absolute; display: block; }
+    .pr-v { position: absolute; }
+    .pr-v img { position: absolute; left: 0; top: 0; width: 100%; height: 100%; object-fit: contain; display: block; }
 
     /* Copy */
     .pr-copy {
@@ -93,7 +93,7 @@
       letter-spacing: 0.2em;
       color: #7c33c6;
     }
-    .pr-num span { color: #9a98a6; font-weight: 400; }
+    .pr-num span { color: #858391; font-weight: 400; }
     .pr-name {
       position: absolute;
       left: -4px;
@@ -150,21 +150,26 @@
 
     <!-- 01 Llaveros -->
     <div class="pr-prod" id="pr-p1">
-      <img src="assets/productos/llavero-negro.png" alt="Llavero" style="left: 467px; top: 268px; width: 366px; height: 535px" />
+      <div class="pr-v" id="pr-v1a" style="left: 335px; top: 290px; width: 335px; height: 490px"><img src="assets/productos/llavero-negro.png" alt="Llavero negro" style="transform: rotate(-6deg)" /></div>
+      <div class="pr-v" id="pr-v1b" style="left: 640px; top: 370px; width: 370px; height: 410px"><img src="assets/productos/llavero-rosa.png" alt="Llavero rosa" style="transform: rotate(6deg)" /></div>
     </div>
-    <!-- 02 Canilleras (the same piece twice, one mirrored, read as a pair) -->
+    <!-- 02 Canilleras: the same piece twice, one mirrored, read as a pair -->
     <div class="pr-prod" id="pr-p2">
-      <img src="assets/productos/canillera.png" alt="Canillera izquierda" style="left: 392px; top: 262px; width: 335px; height: 520px; transform: scaleX(-1) rotate(-7deg)" />
-      <img src="assets/productos/canillera.png" alt="Canillera derecha" style="left: 586px; top: 292px; width: 335px; height: 520px; transform: rotate(7deg)" />
+      <div class="pr-v" id="pr-v2a" style="left: 392px; top: 262px; width: 335px; height: 520px"><img src="assets/productos/canillera.png" alt="Canillera izquierda" style="transform: scaleX(-1) rotate(-7deg)" /></div>
+      <div class="pr-v" id="pr-v2b" style="left: 586px; top: 292px; width: 335px; height: 520px"><img src="assets/productos/canillera.png" alt="Canillera derecha" style="transform: rotate(7deg)" /></div>
     </div>
-    <!-- 03 Porta control remoto: 3/4 view + back plate -->
+    <!-- 03 Porta control remoto: back plate, 3/4 view, front view -->
     <div class="pr-prod" id="pr-p3">
-      <img id="pr-p3-back" src="assets/productos/portacontrol-placa.png" alt="Porta control, placa" style="left: 360px; top: 430px; width: 375px; height: 360px" />
-      <img id="pr-p3-main" src="assets/productos/portacontrol.png" alt="Porta control remoto" style="left: 580px; top: 262px; width: 409px; height: 540px" />
+      <div class="pr-v" id="pr-v3a" style="left: 160px; top: 540px; width: 260px; height: 250px"><img src="assets/productos/portacontrol-placa.png" alt="Porta control, placa trasera" /></div>
+      <div class="pr-v" id="pr-v3b" style="left: 760px; top: 340px; width: 295px; height: 390px"><img src="assets/productos/portacontrol.png" alt="Porta control, vista tres cuartos" /></div>
+      <div class="pr-v" id="pr-v3c" style="left: 370px; top: 380px; width: 400px; height: 368px"><img src="assets/productos/portacontrol-frente.png" alt="Porta control, frente" /></div>
     </div>
-    <!-- 04 Portacelular -->
+    <!-- 04 Portacelular: phase A (3/4 + lateral), phase B (frente + atras) -->
     <div class="pr-prod" id="pr-p4">
-      <img src="assets/productos/portacelular.png" alt="Portacelular" style="left: 315px; top: 330px; width: 670px; height: 511px" />
+      <div class="pr-v" id="pr-v4a" style="left: 270px; top: 300px; width: 380px; height: 368px"><img src="assets/productos/portacelular-lateral.png" alt="Portacelular, lateral" /></div>
+      <div class="pr-v" id="pr-v4b" style="left: 450px; top: 400px; width: 560px; height: 427px"><img src="assets/productos/portacelular.png" alt="Portacelular, tres cuartos" /></div>
+      <div class="pr-v" id="pr-v4c" style="left: 300px; top: 330px; width: 370px; height: 439px"><img src="assets/productos/portacelular-frente.png" alt="Portacelular, frente" /></div>
+      <div class="pr-v" id="pr-v4d" style="left: 690px; top: 330px; width: 393px; height: 439px"><img src="assets/productos/portacelular-atras.png" alt="Portacelular, atrás" /></div>
     </div>
 
     <div class="pr-copy" id="pr-c1">
@@ -221,29 +226,41 @@
     tl.fromTo("#pr-disc", { opacity: 0, scale: 0.6 }, { opacity: 1, scale: 1, duration: 1.0, ease: "expo.out" }, 2.4);
     tl.fromTo("#pr-floor", { opacity: 0, scaleX: 0.4 }, { opacity: 1, scaleX: 1, duration: 0.9, ease: "power2.out" }, 2.55);
 
-    // One beat per product: it lands on the stage, then its name; then it leaves to the left as the next arrives
-    const BEAT = 3.1;
-    const FIRST = 2.55;
-    for (let i = 1; i <= 4; i++) {
-      const t = FIRST + (i - 1) * BEAT;
-      const p = `#pr-p${i}`;
-      const c = `#pr-c${i}`;
-      tl.fromTo(p, { opacity: 0, x: 180, scale: 0.94, filter: "blur(12px)" }, { opacity: 1, x: 0, scale: 1, filter: "blur(0px)", duration: 1.0, ease: "expo.out" }, t);
+    // One beat per product. Each view of a product lands on its own; the product leaves to the left as the next arrives.
+    const IN = (sel, t) => tl.fromTo(sel, { opacity: 0, x: 170, scale: 0.94, filter: "blur(12px)" }, { opacity: 1, x: 0, scale: 1, filter: "blur(0px)", duration: 1.0, ease: "expo.out" }, t);
+    const OUT = (sel, t) => tl.to(sel, { opacity: 0, x: -170, filter: "blur(10px)", duration: 0.4, ease: "power3.in" }, t);
+    const COPY_IN = (c, t) => {
       tl.fromTo(`${c} .pr-num`, { opacity: 0, filter: "blur(6px)" }, { opacity: 1, filter: "blur(0px)", duration: 0.35, ease: "power2.out" }, t + 0.2);
       tl.fromTo(`${c} .ch`, { opacity: 0, y: 30, filter: "blur(8px)" }, { opacity: 1, y: 0, filter: "blur(0px)", duration: 0.6, ease: "expo.out", stagger: 0.035 }, t + 0.3);
       tl.fromTo(`${c} .pr-rule`, { scaleX: 0 }, { scaleX: 1, duration: 0.7, ease: "expo.out" }, t + 0.65);
       tl.fromTo(`${c} .pr-kind`, { opacity: 0, filter: "blur(6px)" }, { opacity: 1, filter: "blur(0px)", duration: 0.35, ease: "power2.out" }, t + 0.75);
+    };
+    const COPY_OUT = (c, t) => tl.to(c, { opacity: 0, filter: "blur(8px)", duration: 0.25, ease: "power2.in" }, t);
 
-      // exit
-      const out = t + BEAT - 0.4;
-      tl.to(p, { opacity: 0, x: -180, filter: "blur(10px)", duration: 0.4, ease: "power3.in" }, out);
-      tl.to(c, { opacity: 0, filter: "blur(8px)", duration: 0.25, ease: "power2.in" }, out);
-    }
-    // Porta control: the back plate settles a beat after the main view
-    tl.fromTo("#pr-p3-back", { x: 60, y: 20 }, { x: 0, y: 0, duration: 1.1, ease: "expo.out" }, FIRST + 2 * BEAT + 0.15);
+    // 01 Llaveros (3.1 s)
+    let t = 2.55;
+    IN("#pr-v1a", t); IN("#pr-v1b", t + 0.4); COPY_IN("#pr-c1", t);
+    OUT("#pr-p1", t + 2.7); COPY_OUT("#pr-c1", t + 2.7);
+
+    // 02 Canilleras (3.1 s)
+    t = 5.65;
+    IN("#pr-v2a", t); IN("#pr-v2b", t + 0.3); COPY_IN("#pr-c2", t);
+    OUT("#pr-p2", t + 2.7); COPY_OUT("#pr-c2", t + 2.7);
+
+    // 03 Porta control remoto (3.5 s): front first, then the 3/4 view, then the back plate
+    t = 8.75;
+    IN("#pr-v3c", t); IN("#pr-v3b", t + 0.45); IN("#pr-v3a", t + 0.9); COPY_IN("#pr-c3", t);
+    OUT("#pr-p3", t + 3.1); COPY_OUT("#pr-c3", t + 3.1);
+
+    // 04 Portacelular (4.6 s): 3/4 + lateral, then they make way for frente + atras
+    t = 12.25;
+    IN("#pr-v4b", t); IN("#pr-v4a", t + 0.4); COPY_IN("#pr-c4", t);
+    OUT(["#pr-v4a", "#pr-v4b"], t + 2.1);
+    IN("#pr-v4c", t + 2.35); IN("#pr-v4d", t + 2.6);
+    OUT("#pr-p4", t + 4.2); COPY_OUT("#pr-c4", t + 4.2);
 
     // Stage clears for the closing
-    const END = FIRST + 4 * BEAT - 0.4;
+    const END = t + 4.2;
     tl.to(["#pr-disc", "#pr-floor"], { opacity: 0, scale: 0.85, duration: 0.4, ease: "power3.in" }, END);
     tl.to("#pr-tag", { opacity: 0, filter: "blur(6px)", duration: 0.25, ease: "power2.in" }, END);
 

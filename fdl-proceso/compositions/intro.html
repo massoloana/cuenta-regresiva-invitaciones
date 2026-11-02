@@ -1,0 +1,111 @@
+<template>
+  <style>
+    @font-face { font-family: "Comfortaa"; font-weight: 400; src: url("assets/fonts/comfortaa-latin-400-normal.woff2") format("woff2"); }
+    @font-face { font-family: "Comfortaa"; font-weight: 600; src: url("assets/fonts/comfortaa-latin-600-normal.woff2") format("woff2"); }
+    #root {
+      position: absolute;
+      inset: 0;
+      font-family: "Comfortaa", sans-serif;
+      color: #17151f;
+    }
+    #in-mark {
+      position: absolute;
+      left: 896px;
+      top: 170px;
+      width: 128px;
+      height: 153px;
+    }
+    #in-mark img {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 128px;
+      height: 153px;
+      object-fit: contain;
+    }
+    #in-eyebrow {
+      position: absolute;
+      left: 0;
+      top: 380px;
+      width: 1920px;
+      text-align: center;
+      font-size: 34px;
+      font-weight: 400;
+      color: #4b4957;
+    }
+    #in-title {
+      position: absolute;
+      left: 0;
+      top: 432px;
+      width: 1920px;
+      text-align: center;
+      font-size: 168px;
+      font-weight: 600;
+      line-height: 1.1;
+      white-space: nowrap;
+    }
+    #in-title .ch { display: inline-block; }
+    #in-rule {
+      position: absolute;
+      left: 840px;
+      top: 650px;
+      width: 240px;
+      height: 5px;
+      border-radius: 3px;
+      background: linear-gradient(90deg, #8034cc, #476ee3);
+    }
+    #in-curso-label {
+      position: absolute;
+      left: 0;
+      top: 700px;
+      width: 1920px;
+      text-align: center;
+      font-size: 22px;
+      font-weight: 400;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: #5d5b68;
+    }
+    #in-curso {
+      position: absolute;
+      left: 0;
+      top: 744px;
+      width: 1920px;
+      text-align: center;
+      font-size: 40px;
+      font-weight: 600;
+      color: #17151f;
+    }
+  </style>
+  <div id="root" data-composition-id="intro" data-width="1920" data-height="1080">
+    <div id="in-mark">
+      <img id="in-f" src="assets/logo-3d-f.png" alt="F" />
+      <img id="in-d" src="assets/logo-3d-d.png" alt="D" />
+      <img id="in-l" src="assets/logo-3d-l.png" alt="L" />
+    </div>
+    <div id="in-eyebrow">detrás de escena</div>
+    <div id="in-title"><span class="ch">E</span><span class="ch">l</span><span class="ch">&nbsp;</span><span class="ch">p</span><span class="ch">r</span><span class="ch">o</span><span class="ch">c</span><span class="ch">e</span><span class="ch">s</span><span class="ch">o</span></div>
+    <div id="in-rule"></div>
+    <div id="in-curso-label">Curso</div>
+    <div id="in-curso">Realizador/a de piezas gráficas y audiovisuales para Redes Sociales</div>
+  </div>
+  <script>
+    const tl = gsap.timeline({ paused: true });
+
+    // The mark assembles, small, as in the identity film: F, D, L
+    tl.fromTo("#in-f", { opacity: 0, y: -40, filter: "blur(8px)" }, { opacity: 1, y: 0, filter: "blur(0px)", duration: 0.8, ease: "expo.out" }, 0.2);
+    tl.fromTo("#in-d", { opacity: 0, x: -34, y: 20, filter: "blur(8px)" }, { opacity: 1, x: 0, y: 0, filter: "blur(0px)", duration: 0.8, ease: "expo.out" }, 0.35);
+    tl.fromTo("#in-l", { opacity: 0, x: 34, y: 20, filter: "blur(8px)" }, { opacity: 1, x: 0, y: 0, filter: "blur(0px)", duration: 0.8, ease: "expo.out" }, 0.5);
+
+    tl.fromTo("#in-eyebrow", { opacity: 0, filter: "blur(6px)" }, { opacity: 1, filter: "blur(0px)", duration: 0.4, ease: "power2.out" }, 0.6);
+    tl.fromTo("#in-title .ch", { opacity: 0, y: 40, filter: "blur(10px)" }, { opacity: 1, y: 0, filter: "blur(0px)", duration: 0.7, ease: "expo.out", stagger: 0.05 }, 0.75);
+    tl.fromTo("#in-rule", { scaleX: 0 }, { scaleX: 1, duration: 0.8, ease: "expo.out" }, 1.4);
+    tl.fromTo("#in-curso-label", { opacity: 0, filter: "blur(6px)" }, { opacity: 1, filter: "blur(0px)", duration: 0.35, ease: "power2.out" }, 1.6);
+    tl.fromTo("#in-curso", { opacity: 0, y: 16, filter: "blur(8px)" }, { opacity: 1, y: 0, filter: "blur(0px)", duration: 0.6, ease: "expo.out" }, 1.75);
+
+    // Out
+    tl.to(["#in-mark", "#in-eyebrow", "#in-title", "#in-rule", "#in-curso-label", "#in-curso"], { opacity: 0, filter: "blur(10px)", duration: 0.3, ease: "power2.in", stagger: 0.03 }, 4.15);
+
+    window.__timelines["intro"] = tl;
+  </script>
+</template>

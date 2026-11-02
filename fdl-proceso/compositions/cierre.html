@@ -1,0 +1,110 @@
+<template>
+  <style>
+    @font-face { font-family: "Comfortaa"; font-weight: 400; src: url("assets/fonts/comfortaa-latin-400-normal.woff2") format("woff2"); }
+    @font-face { font-family: "Comfortaa"; font-weight: 500; src: url("assets/fonts/comfortaa-latin-500-normal.woff2") format("woff2"); }
+    #root {
+      position: absolute;
+      inset: 0;
+      font-family: "Comfortaa", sans-serif;
+      color: #17151f;
+    }
+    #ci-ground {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 1920px;
+      height: 1080px;
+      background: transparent;
+    }
+    #ci-mark {
+      position: absolute;
+      left: 454px;
+      top: 310px;
+      width: 386px;
+      height: 460px;
+    }
+    #ci-mark img {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 386px;
+      height: 460px;
+      object-fit: contain;
+    }
+    #ci-shadow {
+      position: absolute;
+      left: 50px;
+      top: 418px;
+      width: 286px;
+      height: 64px;
+      border-radius: 50%;
+      background: radial-gradient(ellipse at center, rgba(52, 30, 110, 0.22) 0%, rgba(52, 30, 110, 0) 70%);
+    }
+    #ci-word {
+      position: absolute;
+      left: 958px;
+      top: 540px;
+      transform: translateY(-50%);
+      font-size: 112px;
+      font-weight: 500;
+      line-height: 1.17;
+      letter-spacing: 0.01em;
+    }
+    #ci-word .ln { display: block; white-space: nowrap; }
+    #ci-rule {
+      position: absolute;
+      left: 760px;
+      top: 835px;
+      width: 400px;
+      height: 4px;
+      border-radius: 2px;
+      background: linear-gradient(90deg, #8034cc, #476ee3);
+    }
+    #ci-curso {
+      position: absolute;
+      left: 0;
+      top: 872px;
+      width: 1920px;
+      text-align: center;
+      font-size: 30px;
+      font-weight: 400;
+      color: #3b3946;
+    }
+  </style>
+  <div id="root" data-composition-id="cierre" data-width="1920" data-height="1080">
+    <div id="ci-ground"></div>
+    <div id="ci-mark">
+      <div id="ci-shadow"></div>
+      <img id="ci-f" src="assets/logo-3d-f.png" alt="F" />
+      <img id="ci-d" src="assets/logo-3d-d.png" alt="D" />
+      <img id="ci-l" src="assets/logo-3d-l.png" alt="L" />
+    </div>
+    <div id="ci-word">
+      <span class="ln" id="ci-w1">FUTURO</span>
+      <span class="ln" id="ci-w2">DIGITAL</span>
+      <span class="ln" id="ci-w3">LAB</span>
+    </div>
+    <div id="ci-rule"></div>
+    <div id="ci-curso">Realizador/a de piezas gráficas y audiovisuales para Redes Sociales</div>
+  </div>
+  <script>
+    const tl = gsap.timeline({ paused: true });
+
+    // The 3D mark assembles once more, quicker: F, D, L
+    tl.fromTo("#ci-f", { opacity: 0, y: -60, filter: "blur(8px)" }, { opacity: 1, y: 0, filter: "blur(0px)", duration: 0.8, ease: "expo.out" }, 0.25);
+    tl.fromTo("#ci-d", { opacity: 0, x: -52, y: 30, filter: "blur(8px)" }, { opacity: 1, x: 0, y: 0, filter: "blur(0px)", duration: 0.8, ease: "expo.out" }, 0.4);
+    tl.fromTo("#ci-l", { opacity: 0, x: 52, y: 30, filter: "blur(8px)" }, { opacity: 1, x: 0, y: 0, filter: "blur(0px)", duration: 0.8, ease: "expo.out" }, 0.55);
+    tl.fromTo("#ci-shadow", { opacity: 0, scaleX: 0.5 }, { opacity: 1, scaleX: 1, duration: 1.2, ease: "power2.out" }, 0.5);
+
+    // Wordmark, word by word (light grey to ink)
+    tl.fromTo("#ci-w1", { opacity: 0, color: "#c9c7d3", filter: "blur(6px)" }, { opacity: 1, color: "#17151f", filter: "blur(0px)", duration: 0.45, ease: "power2.out" }, 0.95);
+    tl.fromTo("#ci-w2", { opacity: 0, color: "#c9c7d3", filter: "blur(6px)" }, { opacity: 1, color: "#17151f", filter: "blur(0px)", duration: 0.45, ease: "power2.out" }, 1.15);
+    tl.fromTo("#ci-w3", { opacity: 0, color: "#c9c7d3", filter: "blur(6px)" }, { opacity: 1, color: "#17151f", filter: "blur(0px)", duration: 0.45, ease: "power2.out" }, 1.35);
+
+    // Signature rule draws from the centre
+    tl.fromTo("#ci-rule", { scaleX: 0 }, { scaleX: 1, duration: 0.9, ease: "expo.out" }, 1.8);
+    tl.fromTo("#ci-curso", { opacity: 0, filter: "blur(6px)" }, { opacity: 1, filter: "blur(0px)", duration: 0.5, ease: "power2.out" }, 2.1);
+
+    window.__timelines["cierre"] = tl;
+  </script>
+</template>

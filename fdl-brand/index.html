@@ -3,7 +3,8 @@
   lang="es"
   data-resolution="landscape"
   data-composition-variables='[
-    {"id":"brand","type":"string","label":"Marca","default":"Futuro Digital Lab"},
+    {"id":"rol","type":"string","label":"Rol","default":"Realizador/a de piezas gráficas y audiovisuales para Redes Sociales"},
+    {"id":"seccion","type":"string","label":"Sección","default":"Identidad visual"},
     {"id":"violeta","type":"color","label":"Violeta","default":"#8034CC"},
     {"id":"azul","type":"color","label":"Azul","default":"#476EE3"}
   ]'
@@ -52,15 +53,15 @@
       #hud-brand {
         position: absolute;
         left: 120px;
-        top: 92px;
-        font-size: 20px;
+        top: 80px;
+        font-size: 26px;
         font-weight: 600;
-        letter-spacing: 0.22em;
-        text-transform: uppercase;
+        letter-spacing: 0.01em;
         color: var(--ink);
         display: flex;
         align-items: center;
         gap: 18px;
+        white-space: nowrap;
       }
       #hud-brand i {
         display: block;
@@ -71,8 +72,8 @@
       }
       #hud-year {
         position: absolute;
-        right: 120px;
-        top: 92px;
+        left: 172px;
+        top: 124px;
         font-size: 20px;
         font-weight: 400;
         letter-spacing: 0.22em;
@@ -145,8 +146,8 @@
       ></div>
 
       <div id="hud" class="clip" data-start="0" data-duration="22" data-track-index="2" data-track-kind="graphics">
-        <div id="hud-brand"><i></i><span data-var-text="brand">Futuro Digital Lab</span></div>
-        <div id="hud-year">Identidad visual</div>
+        <div id="hud-brand"><i></i><span data-var-text="rol">Realizador/a de piezas gráficas y audiovisuales para Redes Sociales</span></div>
+        <div id="hud-year" data-var-text="seccion">Identidad visual</div>
       </div>
     </div>
     <script>

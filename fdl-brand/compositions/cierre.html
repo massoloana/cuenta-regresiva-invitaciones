@@ -22,10 +22,7 @@
       top: 310px;
       width: 386px;
       height: 460px;
-      perspective: 1600px;
     }
-    #ci-spin,
-    #ci-mark .ci-face,
     #ci-mark img {
       position: absolute;
       left: 0;
@@ -34,9 +31,6 @@
       height: 460px;
       object-fit: contain;
     }
-    #ci-spin { transform-style: preserve-3d; }
-    #ci-mark .ci-face { backface-visibility: hidden; -webkit-backface-visibility: hidden; }
-    #ci-mark .ci-depth { filter: brightness(0.42) saturate(1.2); }
     #ci-shadow {
       position: absolute;
       left: 50px;
@@ -71,23 +65,9 @@
     <div id="ci-ground"></div>
     <div id="ci-mark">
       <div id="ci-shadow"></div>
-      <div id="ci-spin">
-        <img class="ci-depth" src="assets/logo-3d.png" alt="" style="transform: translateZ(-8px)" />
-        <img class="ci-depth" src="assets/logo-3d.png" alt="" style="transform: translateZ(-6px)" />
-        <img class="ci-depth" src="assets/logo-3d.png" alt="" style="transform: translateZ(-4px)" />
-        <img class="ci-depth" src="assets/logo-3d.png" alt="" style="transform: translateZ(-2px)" />
-        <img class="ci-depth" src="assets/logo-3d.png" alt="" style="transform: translateZ(0px)" />
-        <img class="ci-depth" src="assets/logo-3d.png" alt="" style="transform: translateZ(2px)" />
-        <img class="ci-depth" src="assets/logo-3d.png" alt="" style="transform: translateZ(4px)" />
-        <img class="ci-depth" src="assets/logo-3d.png" alt="" style="transform: translateZ(6px)" />
-        <img class="ci-depth" src="assets/logo-3d.png" alt="" style="transform: translateZ(8px)" />
-        <div class="ci-face" id="ci-back" style="transform: rotateY(180deg) translateZ(9px)">
-          <img src="assets/logo-3d.png" alt="" />
-        </div>
-        <div class="ci-face" id="ci-front" style="transform: translateZ(9px)">
-          <img src="assets/logo-3d.png" alt="Futuro Digital Lab" />
-        </div>
-      </div>
+      <img id="ci-f" src="assets/logo-3d-f.png" alt="F" />
+      <img id="ci-d" src="assets/logo-3d-d.png" alt="D" />
+      <img id="ci-l" src="assets/logo-3d-l.png" alt="L" />
     </div>
     <div id="ci-word">
       <span class="ln" id="ci-w1">FUTURO</span>
@@ -99,13 +79,11 @@
   <script>
     const tl = gsap.timeline({ paused: true });
 
-    // The 3D mark turns into place: one and a half revolutions, settling on a long tail
-    // (opacity goes on the wrapper: opacity on the 3D element itself would flatten it)
-    tl.fromTo("#ci-spin", { rotationY: -540, scale: 0.82 }, { rotationY: 0, scale: 1, duration: 2.2, ease: "expo.out" }, 0.15);
-    tl.fromTo("#ci-mark", { opacity: 0 }, { opacity: 1, duration: 0.35, ease: "power2.out" }, 0.15);
-    tl.fromTo("#ci-shadow", { opacity: 0, scaleX: 0.5 }, { opacity: 1, scaleX: 1, duration: 1.6, ease: "power2.out" }, 0.4);
-    // solid edge and back face only while it turns
-    tl.set(["#ci-back", "#ci-mark .ci-depth"], { opacity: 0 }, 2.0);
+    // The 3D mark assembles once more, quicker: F, D, L
+    tl.fromTo("#ci-f", { opacity: 0, y: -60, filter: "blur(8px)" }, { opacity: 1, y: 0, filter: "blur(0px)", duration: 0.8, ease: "expo.out" }, 0.25);
+    tl.fromTo("#ci-d", { opacity: 0, x: -52, y: 30, filter: "blur(8px)" }, { opacity: 1, x: 0, y: 0, filter: "blur(0px)", duration: 0.8, ease: "expo.out" }, 0.4);
+    tl.fromTo("#ci-l", { opacity: 0, x: 52, y: 30, filter: "blur(8px)" }, { opacity: 1, x: 0, y: 0, filter: "blur(0px)", duration: 0.8, ease: "expo.out" }, 0.55);
+    tl.fromTo("#ci-shadow", { opacity: 0, scaleX: 0.5 }, { opacity: 1, scaleX: 1, duration: 1.2, ease: "power2.out" }, 0.5);
 
     // Wordmark, word by word (light grey to ink)
     tl.fromTo("#ci-w1", { opacity: 0, color: "#c9c7d3", filter: "blur(6px)" }, { opacity: 1, color: "#17151f", filter: "blur(0px)", duration: 0.45, ease: "power2.out" }, 0.95);

@@ -60,14 +60,8 @@
       color: #7c33c6;
     }
     .vd-num span { color: #858391; font-weight: 400; }
-    .vd-name {
-      margin-top: 18px;
-      font-size: 64px;
-      font-weight: 600;
-      line-height: 1.1;
-    }
     .vd-rule {
-      margin-top: 26px;
+      margin-top: 22px;
       width: 120px;
       height: 5px;
       border-radius: 3px;
@@ -182,13 +176,11 @@
     <div id="vd-title"><span class="ch">V</span><span class="ch">i</span><span class="ch">d</span><span class="ch">e</span><span class="ch">o</span><span class="ch">s</span></div>
 
     <div class="vd-info" id="vd-i1">
-      <div class="vd-num">01 <span>/ 02</span></div>
-      <div class="vd-name">Graciela</div>
+      <div class="vd-num">VIDEO 01 <span>/ 02</span></div>
       <div class="vd-rule"></div>
     </div>
     <div class="vd-info" id="vd-i2">
-      <div class="vd-num">02 <span>/ 02</span></div>
-      <div class="vd-name">Ariel</div>
+      <div class="vd-num">VIDEO 02 <span>/ 02</span></div>
       <div class="vd-rule"></div>
     </div>
 
@@ -250,7 +242,6 @@
 
     const INFO_IN = (i, t) => {
       tl.fromTo(`${i} .vd-num`, { opacity: 0, filter: "blur(6px)" }, { opacity: 1, filter: "blur(0px)", duration: 0.35, ease: "power2.out" }, t);
-      tl.fromTo(`${i} .vd-name`, { opacity: 0, y: 24, filter: "blur(8px)" }, { opacity: 1, y: 0, filter: "blur(0px)", duration: 0.6, ease: "expo.out" }, t + 0.1);
       tl.fromTo(`${i} .vd-rule`, { scaleX: 0 }, { scaleX: 1, duration: 0.7, ease: "expo.out" }, t + 0.35);
     };
     INFO_IN("#vd-i1", 2.2);

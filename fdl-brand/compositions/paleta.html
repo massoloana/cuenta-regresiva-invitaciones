@@ -1,0 +1,93 @@
+<template>
+  <style>
+    @font-face { font-family: "Comfortaa"; font-weight: 400; src: url("assets/fonts/comfortaa-latin-400-normal.woff2") format("woff2"); }
+    @font-face { font-family: "Comfortaa"; font-weight: 600; src: url("assets/fonts/comfortaa-latin-600-normal.woff2") format("woff2"); }
+    #root {
+      position: absolute;
+      inset: 0;
+      font-family: "Comfortaa", sans-serif;
+      color: #17151f;
+    }
+    #pl-eyebrow {
+      position: absolute;
+      left: 0;
+      top: 196px;
+      width: 1920px;
+      text-align: center;
+      font-size: 44px;
+      font-weight: 400;
+      color: #2a2733;
+    }
+    .pl-dot {
+      position: absolute;
+      top: 350px;
+      width: 300px;
+      height: 300px;
+      border-radius: 50%;
+    }
+    #pl-dot1 { left: 450px; background: #8034cc; box-shadow: 0 30px 60px -20px rgba(128, 52, 204, 0.55); }
+    #pl-dot2 { left: 810px; background: #476ee3; box-shadow: 0 30px 60px -20px rgba(71, 110, 227, 0.55); }
+    #pl-dot3 { left: 1170px; background: #ffffff; box-shadow: 0 30px 60px -24px rgba(60, 50, 110, 0.3); }
+    .pl-info {
+      position: absolute;
+      top: 700px;
+      width: 400px;
+      text-align: center;
+    }
+    #pl-info1 { left: 400px; }
+    #pl-info2 { left: 760px; }
+    #pl-info3 { left: 1120px; }
+    .pl-info .nm { display: block; font-size: 34px; font-weight: 600; color: #17151f; }
+    .pl-info .hx { display: block; margin-top: 18px; font-size: 26px; font-weight: 400; letter-spacing: 0.16em; color: #4b4957; }
+    .pl-info .rgb { display: block; margin-top: 10px; font-size: 22px; font-weight: 400; letter-spacing: 0.12em; color: #5d5b68; }
+    .pl-tag {
+      position: absolute;
+      left: 120px;
+      bottom: 92px;
+      display: flex;
+      align-items: baseline;
+      gap: 16px;
+      font-size: 22px;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+    }
+    .pl-tag b { font-weight: 600; color: #7c33c6; }
+    .pl-tag span { font-weight: 400; color: #4b4957; }
+  </style>
+  <div id="root" data-composition-id="paleta" data-width="1920" data-height="1080" data-layout-allow-overflow>
+    <div id="pl-eyebrow">paleta de colores</div>
+
+    <div class="pl-dot" id="pl-dot1"></div>
+    <div class="pl-dot" id="pl-dot2"></div>
+    <div class="pl-dot" id="pl-dot3"></div>
+
+    <div class="pl-info" id="pl-info1"><span class="nm">Violeta</span><span class="hx">#8034CC</span><span class="rgb">RGB 128 · 52 · 204</span></div>
+    <div class="pl-info" id="pl-info2"><span class="nm">Azul</span><span class="hx">#476EE3</span><span class="rgb">RGB 71 · 110 · 227</span></div>
+    <div class="pl-info" id="pl-info3"><span class="nm">Blanco</span><span class="hx">#FFFFFF</span><span class="rgb">RGB 255 · 255 · 255</span></div>
+
+    <div class="pl-tag" id="pl-tag"><b>04</b><span>Paleta de colores</span></div>
+  </div>
+  <script>
+    const tl = gsap.timeline({ paused: true });
+
+    tl.fromTo("#pl-tag", { opacity: 0, filter: "blur(6px)" }, { opacity: 1, filter: "blur(0px)", duration: 0.4, ease: "power2.out" }, 0.15);
+    tl.fromTo("#pl-eyebrow", { opacity: 0, filter: "blur(8px)" }, { opacity: 1, filter: "blur(0px)", duration: 0.4, ease: "power2.out" }, 0.2);
+
+    // Each colour gets its own beat: the swatch lands, then its data
+    const beats = [0.7, 1.55, 2.4];
+    beats.forEach((t, i) => {
+      const n = i + 1;
+      tl.fromTo(`#pl-dot${n}`, { scale: 0, opacity: 1 }, { scale: 1, opacity: 1, duration: 0.9, ease: "back.out(1.5)" }, t);
+      tl.fromTo(`#pl-info${n} .nm`, { opacity: 0, y: 16, filter: "blur(6px)" }, { opacity: 1, y: 0, filter: "blur(0px)", duration: 0.5, ease: "expo.out" }, t + 0.3);
+      tl.fromTo(`#pl-info${n} .hx`, { opacity: 0, filter: "blur(6px)" }, { opacity: 1, filter: "blur(0px)", duration: 0.35, ease: "power2.out" }, t + 0.42);
+      tl.fromTo(`#pl-info${n} .rgb`, { opacity: 0, filter: "blur(6px)" }, { opacity: 1, filter: "blur(0px)", duration: 0.35, ease: "power2.out" }, t + 0.52);
+    });
+
+    // Exit: everything clears except the white swatch, which becomes the next world
+    tl.to(["#pl-tag", "#pl-eyebrow", "#pl-info1", "#pl-info2", "#pl-info3"], { opacity: 0, filter: "blur(8px)", duration: 0.25, ease: "power2.in", stagger: 0.03 }, 4.8);
+    tl.to(["#pl-dot1", "#pl-dot2"], { scale: 0, duration: 0.4, ease: "power3.in", stagger: 0.06 }, 4.85);
+    tl.to("#pl-dot3", { x: -360, y: 40, scale: 7.6, boxShadow: "0 0px 0px 0px rgba(60, 50, 110, 0)", duration: 0.95, ease: "power3.inOut" }, 5.15);
+
+    window.__timelines["paleta"] = tl;
+  </script>
+</template>

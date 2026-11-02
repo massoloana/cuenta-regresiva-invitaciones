@@ -1,0 +1,187 @@
+<template>
+  <style>
+    @font-face { font-family: "Comfortaa"; font-weight: 400; src: url("assets/fonts/comfortaa-latin-400-normal.woff2") format("woff2"); }
+    @font-face { font-family: "Comfortaa"; font-weight: 500; src: url("assets/fonts/comfortaa-latin-500-normal.woff2") format("woff2"); }
+    @font-face { font-family: "Comfortaa"; font-weight: 600; src: url("assets/fonts/comfortaa-latin-600-normal.woff2") format("woff2"); }
+    #root {
+      position: absolute;
+      inset: 0;
+      font-family: "Comfortaa", sans-serif;
+      color: #17151f;
+    }
+    #lg-guides {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 1920px;
+      height: 1080px;
+    }
+    #lg-guides line,
+    #lg-guides polygon {
+      fill: none;
+      stroke: #8a87a3;
+      stroke-width: 1.5;
+      vector-effect: non-scaling-stroke;
+    }
+    #lg-mark {
+      position: absolute;
+      left: 742px;
+      top: 280px;
+      width: 436px;
+      height: 520px;
+    }
+    #lg-flat { opacity: 0; }
+    #lg-mark .lg-3d,
+    #lg-mark .lg-flat {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 436px;
+      height: 520px;
+    }
+    #lg-mark img {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 436px;
+      height: 520px;
+      object-fit: contain;
+    }
+    #lg-shadow {
+      position: absolute;
+      left: 60px;
+      top: 470px;
+      width: 316px;
+      height: 70px;
+      border-radius: 50%;
+      background: radial-gradient(ellipse at center, rgba(52, 30, 110, 0.28) 0%, rgba(52, 30, 110, 0) 70%);
+    }
+    #lg-sheen {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 436px;
+      height: 520px;
+      overflow: hidden;
+      -webkit-mask-image: url("assets/logo-3d.png");
+      mask-image: url("assets/logo-3d.png");
+      -webkit-mask-size: 436px 520px;
+      mask-size: 436px 520px;
+      -webkit-mask-repeat: no-repeat;
+      mask-repeat: no-repeat;
+      mix-blend-mode: screen;
+    }
+    #lg-sheen-band {
+      position: absolute;
+      left: -300px;
+      top: -100px;
+      width: 220px;
+      height: 720px;
+      background: linear-gradient(90deg, rgba(255, 255, 255, 0) 0%, rgba(210, 225, 255, 0.5) 50%, rgba(255, 255, 255, 0) 100%);
+    }
+    #lg-word {
+      position: absolute;
+      left: 958px;
+      top: 540px;
+      transform: translateY(-50%);
+      font-size: 112px;
+      font-weight: 500;
+      line-height: 1.17;
+      letter-spacing: 0.01em;
+    }
+    #lg-word .ln { display: block; white-space: nowrap; }
+    #lg-word .ch { display: inline-block; opacity: 0; }
+    .lg-tag {
+      opacity: 0;
+      position: absolute;
+      left: 120px;
+      bottom: 92px;
+      display: flex;
+      align-items: baseline;
+      gap: 16px;
+      font-size: 22px;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+    }
+    .lg-tag b { font-weight: 600; color: #7c33c6; }
+    .lg-tag span { font-weight: 400; color: #4b4957; }
+  </style>
+  <div id="root" data-composition-id="logo" data-width="1920" data-height="1080" data-layout-allow-overlap>
+    <svg id="lg-guides" viewBox="0 0 1920 1080" data-layout-ignore>
+      <polygon id="lg-hex" points="960,180 1272,360 1272,720 960,900 648,720 648,360" pathLength="1" />
+      <line class="lg-y" x1="960" y1="540" x2="960" y2="900" pathLength="1" />
+      <line class="lg-y" x1="960" y1="540" x2="648" y2="360" pathLength="1" />
+      <line class="lg-y" x1="960" y1="540" x2="1272" y2="360" pathLength="1" />
+      <line class="lg-axis" x1="180" y1="90" x2="1740" y2="990" pathLength="1" />
+      <line class="lg-axis" x1="1740" y1="90" x2="180" y2="990" pathLength="1" />
+    </svg>
+
+    <div id="lg-mark">
+      <div id="lg-shadow"></div>
+      <div class="lg-3d" id="lg-3d">
+        <img id="lg-f" src="assets/logo-3d-f.png" alt="F" />
+        <img id="lg-d" src="assets/logo-3d-d.png" alt="D" />
+        <img id="lg-l" src="assets/logo-3d-l.png" alt="L" />
+        <div id="lg-sheen"><div id="lg-sheen-band"></div></div>
+      </div>
+      <div class="lg-flat" id="lg-flat">
+        <img src="assets/logo-flat.png" alt="Futuro Digital Lab" />
+      </div>
+    </div>
+
+    <div id="lg-word">
+      <span class="ln" id="lg-w1"><span class="ch">F</span><span class="ch">U</span><span class="ch">T</span><span class="ch">U</span><span class="ch">R</span><span class="ch">O</span></span>
+      <span class="ln" id="lg-w2"><span class="ch">D</span><span class="ch">I</span><span class="ch">G</span><span class="ch">I</span><span class="ch">T</span><span class="ch">A</span><span class="ch">L</span></span>
+      <span class="ln" id="lg-w3"><span class="ch">L</span><span class="ch">A</span><span class="ch">B</span></span>
+    </div>
+
+    <div class="lg-tag" id="lg-tag1"><b>01</b><span>Isotipo</span></div>
+    <div class="lg-tag" id="lg-tag2"><b>02</b><span>Logotipo</span></div>
+  </div>
+  <script>
+    const tl = gsap.timeline({ paused: true });
+
+
+    // 1. Isometric construction guides draw in
+    tl.fromTo("#lg-guides", { opacity: 0.55 }, { opacity: 0.55, duration: 0.01 }, 0);
+    tl.fromTo(".lg-axis", { strokeDasharray: 1, strokeDashoffset: 1 }, { strokeDashoffset: 0, duration: 1.4, ease: "power2.inOut", stagger: 0.12 }, 0.1);
+    tl.fromTo("#lg-hex", { strokeDasharray: 1, strokeDashoffset: 1 }, { strokeDashoffset: 0, duration: 1.3, ease: "power2.inOut" }, 0.25);
+    tl.fromTo(".lg-y", { strokeDasharray: 1, strokeDashoffset: 1 }, { strokeDashoffset: 0, duration: 0.7, ease: "power2.out", stagger: 0.1 }, 0.7);
+
+    // 2. Each letter lands on its face of the cube, one at a time
+    tl.fromTo("#lg-f", { opacity: 0, y: -240, filter: "blur(14px)" }, { opacity: 1, y: 0, filter: "blur(0px)", duration: 1.1, ease: "expo.out" }, 0.9);
+    tl.fromTo("#lg-d", { opacity: 0, x: -230, y: 133, filter: "blur(14px)" }, { opacity: 1, x: 0, y: 0, filter: "blur(0px)", duration: 1.1, ease: "expo.out" }, 1.6);
+    tl.fromTo("#lg-l", { opacity: 0, x: 230, y: 133, filter: "blur(14px)" }, { opacity: 1, x: 0, y: 0, filter: "blur(0px)", duration: 1.1, ease: "expo.out" }, 2.3);
+    tl.fromTo("#lg-shadow", { opacity: 0, scaleX: 0.6 }, { opacity: 1, scaleX: 1, duration: 1.4, ease: "power2.out" }, 1.6);
+
+    // Guides step back once the mark is complete
+    tl.to("#lg-guides", { opacity: 0, duration: 0.8, ease: "power2.inOut" }, 3.0);
+
+    // Chapter tag 01
+    tl.fromTo("#lg-tag1", { opacity: 0, filter: "blur(6px)" }, { opacity: 1, filter: "blur(0px)", duration: 0.4, ease: "power2.out" }, 1.0);
+    tl.to("#lg-tag1", { opacity: 0, filter: "blur(6px)", duration: 0.2, ease: "power2.in" }, 4.3);
+
+    // 3. Light sheen across the finished isotype
+    tl.fromTo("#lg-sheen-band", { x: 0, rotation: 18 }, { x: 1000, rotation: 18, duration: 1.2, ease: "power2.inOut" }, 3.1);
+
+    // 4. Isotype carries across to its place in the lockup, becoming the flat version
+    tl.to("#lg-mark", { x: -313, scale: 0.885, duration: 1.0, ease: "power3.inOut" }, 4.5);
+    tl.to("#lg-shadow", { opacity: 0, duration: 0.4, ease: "power2.in" }, 4.5);
+    tl.to("#lg-3d", { opacity: 0, filter: "blur(6px)", duration: 0.35, ease: "power2.in" }, 5.05);
+    tl.fromTo("#lg-flat", { opacity: 0, filter: "blur(6px)" }, { opacity: 1, filter: "blur(0px)", duration: 0.35, ease: "power2.out" }, 5.05);
+
+    // 5. Wordmark: each word arrives on its own, letter by letter
+    tl.fromTo("#lg-w1 .ch", { opacity: 0, y: 26, filter: "blur(8px)" }, { opacity: 1, y: 0, filter: "blur(0px)", duration: 0.55, ease: "expo.out", stagger: 0.045 }, 5.45);
+    tl.fromTo("#lg-w2 .ch", { opacity: 0, y: 26, filter: "blur(8px)" }, { opacity: 1, y: 0, filter: "blur(0px)", duration: 0.55, ease: "expo.out", stagger: 0.045 }, 6.0);
+    tl.fromTo("#lg-w3 .ch", { opacity: 0, y: 26, filter: "blur(8px)" }, { opacity: 1, y: 0, filter: "blur(0px)", duration: 0.55, ease: "expo.out", stagger: 0.06 }, 6.6);
+
+    tl.fromTo("#lg-tag2", { opacity: 0, filter: "blur(6px)" }, { opacity: 1, filter: "blur(0px)", duration: 0.4, ease: "power2.out" }, 5.3);
+
+    // 6. Exit: the lockup blurs away, the ground stays
+    tl.to("#lg-tag2", { opacity: 0, filter: "blur(6px)", duration: 0.2, ease: "power2.in" }, 9.7);
+    tl.to("#lg-word .ch", { opacity: 0, filter: "blur(8px)", duration: 0.22, ease: "power2.in", stagger: 0.012 }, 9.75);
+    tl.to("#lg-mark", { opacity: 0, filter: "blur(10px)", scale: 0.84, duration: 0.35, ease: "power3.in" }, 9.85);
+
+    window.__timelines["logo"] = tl;
+  </script>
+</template>

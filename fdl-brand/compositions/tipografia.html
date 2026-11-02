@@ -1,0 +1,165 @@
+<template>
+  <style>
+    @font-face { font-family: "Comfortaa"; font-weight: 300; src: url("assets/fonts/comfortaa-latin-300-normal.woff2") format("woff2"); }
+    @font-face { font-family: "Comfortaa"; font-weight: 400; src: url("assets/fonts/comfortaa-latin-400-normal.woff2") format("woff2"); }
+    @font-face { font-family: "Comfortaa"; font-weight: 500; src: url("assets/fonts/comfortaa-latin-500-normal.woff2") format("woff2"); }
+    @font-face { font-family: "Comfortaa"; font-weight: 600; src: url("assets/fonts/comfortaa-latin-600-normal.woff2") format("woff2"); }
+    @font-face { font-family: "Comfortaa"; font-weight: 700; src: url("assets/fonts/comfortaa-latin-700-normal.woff2") format("woff2"); }
+    #root {
+      position: absolute;
+      inset: 0;
+      font-family: "Comfortaa", sans-serif;
+      color: #17151f;
+    }
+    #tp-eyebrow {
+      position: absolute;
+      left: 200px;
+      top: 236px;
+      font-size: 34px;
+      font-weight: 400;
+      color: #4b4957;
+      display: flex;
+      align-items: center;
+      gap: 18px;
+    }
+    #tp-eyebrow i {
+      display: block;
+      width: 46px;
+      height: 4px;
+      border-radius: 2px;
+      background: linear-gradient(90deg, #8034cc, #476ee3);
+      transform-origin: left center;
+    }
+    #tp-name {
+      position: absolute;
+      left: 192px;
+      top: 300px;
+      font-size: 168px;
+      font-weight: 600;
+      line-height: 1.1;
+      letter-spacing: 0.01em;
+      white-space: nowrap;
+    }
+    #tp-name .ch, .tp-row .ch { display: inline-block; }
+    .tp-row {
+      position: absolute;
+      left: 200px;
+      font-size: 40px;
+      font-weight: 400;
+      letter-spacing: 0.24em;
+      white-space: nowrap;
+      color: #2a2733;
+    }
+    #tp-lower { top: 560px; }
+    #tp-upper { top: 630px; }
+    #tp-nums { top: 700px; color: #8034cc; }
+    #tp-weights {
+      position: absolute;
+      left: 200px;
+      top: 812px;
+      display: flex;
+      gap: 44px;
+      font-size: 28px;
+      color: #2a2733;
+      white-space: nowrap;
+    }
+    #tp-weights span { display: block; }
+    #tp-specimen {
+      position: absolute;
+      left: 1270px;
+      top: 250px;
+      width: 520px;
+      height: 520px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    #tp-disc {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 520px;
+      height: 520px;
+      border-radius: 50%;
+      border: 1.5px solid rgba(90, 80, 140, 0.25);
+    }
+    #tp-aa {
+      position: relative;
+      font-size: 300px;
+      font-weight: 700;
+      line-height: 1;
+      letter-spacing: -0.02em;
+      background: linear-gradient(135deg, #476ee3 0%, #8034cc 100%);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+      padding: 0 10px 20px;
+    }
+    .tp-tag {
+      position: absolute;
+      left: 120px;
+      bottom: 92px;
+      display: flex;
+      align-items: baseline;
+      gap: 16px;
+      font-size: 22px;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+    }
+    .tp-tag b { font-weight: 600; color: #7c33c6; }
+    .tp-tag span { font-weight: 400; color: #4b4957; }
+  </style>
+  <div id="root" data-composition-id="tipografia" data-width="1920" data-height="1080">
+    <div id="tp-eyebrow"><i></i><span>tipografía</span></div>
+    <div id="tp-name"><span class="ch">C</span><span class="ch">o</span><span class="ch">m</span><span class="ch">f</span><span class="ch">o</span><span class="ch">r</span><span class="ch">t</span><span class="ch">a</span><span class="ch">a</span></div>
+
+    <div class="tp-row" id="tp-lower"><span class="ch">a</span><span class="ch">b</span><span class="ch">c</span><span class="ch">d</span><span class="ch">e</span><span class="ch">f</span><span class="ch">g</span><span class="ch">h</span><span class="ch">i</span><span class="ch">j</span><span class="ch">k</span><span class="ch">l</span><span class="ch">m</span><span class="ch">n</span><span class="ch">ñ</span><span class="ch">o</span><span class="ch">p</span><span class="ch">q</span><span class="ch">r</span><span class="ch">s</span><span class="ch">t</span><span class="ch">u</span><span class="ch">v</span><span class="ch">w</span><span class="ch">x</span><span class="ch">y</span><span class="ch">z</span></div>
+    <div class="tp-row" id="tp-upper"><span class="ch">A</span><span class="ch">B</span><span class="ch">C</span><span class="ch">D</span><span class="ch">E</span><span class="ch">F</span><span class="ch">G</span><span class="ch">H</span><span class="ch">I</span><span class="ch">J</span><span class="ch">K</span><span class="ch">L</span><span class="ch">M</span><span class="ch">N</span><span class="ch">Ñ</span><span class="ch">O</span><span class="ch">P</span><span class="ch">Q</span><span class="ch">R</span><span class="ch">S</span><span class="ch">T</span><span class="ch">U</span><span class="ch">V</span><span class="ch">W</span><span class="ch">X</span><span class="ch">Y</span><span class="ch">Z</span></div>
+    <div class="tp-row" id="tp-nums"><span class="ch">1</span><span class="ch">2</span><span class="ch">3</span><span class="ch">4</span><span class="ch">5</span><span class="ch">6</span><span class="ch">7</span><span class="ch">8</span><span class="ch">9</span><span class="ch">0</span></div>
+
+    <div id="tp-weights">
+      <span style="font-weight: 300">Light</span>
+      <span style="font-weight: 400">Regular</span>
+      <span style="font-weight: 500">Medium</span>
+      <span style="font-weight: 600">SemiBold</span>
+      <span style="font-weight: 700">Bold</span>
+    </div>
+
+    <div id="tp-specimen">
+      <div id="tp-disc"></div>
+      <div id="tp-aa">Aa</div>
+    </div>
+
+    <div class="tp-tag" id="tp-tag"><b>03</b><span>Tipografía</span></div>
+  </div>
+  <script>
+    const tl = gsap.timeline({ paused: true });
+
+    // Chapter tag + eyebrow
+    tl.fromTo("#tp-tag", { opacity: 0, filter: "blur(6px)" }, { opacity: 1, filter: "blur(0px)", duration: 0.4, ease: "power2.out" }, 0.15);
+    tl.fromTo("#tp-eyebrow i", { scaleX: 0 }, { scaleX: 1, duration: 0.6, ease: "expo.out" }, 0.2);
+    tl.fromTo("#tp-eyebrow span", { opacity: 0, filter: "blur(6px)" }, { opacity: 1, filter: "blur(0px)", duration: 0.35, ease: "power2.out" }, 0.3);
+
+    // 1. The typeface name, letter by letter
+    tl.fromTo("#tp-name .ch", { opacity: 0.0, y: 40, filter: "blur(10px)" }, { opacity: 1, y: 0, filter: "blur(0px)", duration: 0.7, ease: "expo.out", stagger: 0.07 }, 0.55);
+
+    // 2. Specimen: the Aa disc
+    tl.fromTo("#tp-disc", { opacity: 0, scale: 0.7 }, { opacity: 1, scale: 1, duration: 1.0, ease: "expo.out" }, 1.25);
+    tl.fromTo("#tp-aa", { opacity: 0, scale: 1.12, filter: "blur(16px)" }, { opacity: 1, scale: 1, filter: "blur(0px)", duration: 0.9, ease: "expo.out" }, 1.4);
+
+    // 3. Character set, row by row
+    tl.fromTo("#tp-lower .ch", { opacity: 0, filter: "blur(4px)" }, { opacity: 1, filter: "blur(0px)", duration: 0.25, ease: "power2.out", stagger: 0.022 }, 2.1);
+    tl.fromTo("#tp-upper .ch", { opacity: 0, filter: "blur(4px)" }, { opacity: 1, filter: "blur(0px)", duration: 0.25, ease: "power2.out", stagger: 0.022 }, 2.55);
+    tl.fromTo("#tp-nums .ch", { opacity: 0, y: 14, filter: "blur(4px)" }, { opacity: 1, y: 0, filter: "blur(0px)", duration: 0.35, ease: "expo.out", stagger: 0.04 }, 3.0);
+
+    // 4. Weights, light to bold
+    tl.fromTo("#tp-weights span", { opacity: 0, x: -14, filter: "blur(5px)" }, { opacity: 1, x: 0, filter: "blur(0px)", duration: 0.45, ease: "expo.out", stagger: 0.1 }, 3.45);
+
+    // Exit (blur swap on the same ground)
+    tl.to("#tp-tag", { opacity: 0, filter: "blur(6px)", duration: 0.2, ease: "power2.in" }, 6.0);
+    tl.to(["#tp-eyebrow", "#tp-name", "#tp-lower", "#tp-upper", "#tp-nums", "#tp-weights"], { opacity: 0, filter: "blur(8px)", duration: 0.25, ease: "power2.in", stagger: 0.03 }, 6.0);
+    tl.to("#tp-specimen", { opacity: 0, scale: 0.92, filter: "blur(10px)", duration: 0.3, ease: "power3.in" }, 6.1);
+
+    window.__timelines["tipografia"] = tl;
+  </script>
+</template>

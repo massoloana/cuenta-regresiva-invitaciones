@@ -36,6 +36,38 @@
     #ps-k2 { left: 1070px; top: 166px; width: 568px; height: 748px; }
     #ps-k3 { left: 1130px; top: 140px; width: 448px; height: 800px; }
     #ps-k4 { left: 880px; top: 290px; width: 888px; height: 510px; }
+    #ps-k5 { left: 880px; top: 245px; width: 888px; height: 590px; }
+    #ps-k6 { left: 0; top: 0; width: 1920px; height: 1080px; }
+    #ps-k6a { left: 960px; top: 170px; width: 430px; height: 720px; }
+    #ps-k6b { left: 1310px; top: 210px; width: 430px; height: 720px; }
+    .ps-sb-head {
+      position: absolute;
+      left: 30px;
+      top: 26px;
+      font-size: 20px;
+      font-weight: 600;
+      letter-spacing: 0.22em;
+      color: #7c33c6;
+    }
+    .ps-sb-panel {
+      position: absolute;
+      top: 72px;
+      width: 246px;
+      height: 437px;
+      border-radius: 8px;
+      overflow: hidden;
+      border: 2px solid #e3e1ea;
+    }
+    .ps-sb-panel img { position: absolute; left: 0; top: 0; width: 100%; height: 100%; object-fit: cover; }
+    .ps-sb-label {
+      position: absolute;
+      top: 520px;
+      width: 246px;
+      font-size: 22px;
+      font-weight: 400;
+      color: #3b3946;
+    }
+    .ps-sb-label b { font-weight: 600; color: #17151f; }
 
     /* Copy (left column) */
     .ps-copy {
@@ -102,30 +134,56 @@
     <div class="ps-card" id="ps-k2"><div class="ps-photo"><img src="assets/fotos/tipografia.jpg" alt="Exploración tipográfica en Canva" /></div></div>
     <div class="ps-card" id="ps-k3"><div class="ps-photo"><img src="assets/fotos/logo.jpg" alt="Construcción del logo en Canva" /></div></div>
     <div class="ps-card" id="ps-k4"><div class="ps-photo"><img src="assets/fotos/prueba.jpg" alt="Prueba del portacelular" /></div></div>
+    <div class="ps-card" id="ps-k5">
+      <div class="ps-sb-head">GUION · STORYBOARD</div>
+      <div class="ps-sb-panel" style="left: 30px"><img src="assets/fotos/sb-1.jpg" alt="Escena 1" /></div>
+      <div class="ps-sb-panel" style="left: 321px"><img src="assets/fotos/sb-2.jpg" alt="Escena 2" /></div>
+      <div class="ps-sb-panel" style="left: 612px"><img src="assets/fotos/sb-3.jpg" alt="Escena 3" /></div>
+      <div class="ps-sb-label" style="left: 30px"><b>Escena 1</b></div>
+      <div class="ps-sb-label" style="left: 321px"><b>Escena 2</b></div>
+      <div class="ps-sb-label" style="left: 612px"><b>Escena 3</b></div>
+    </div>
+    <div id="ps-k6" style="position: absolute">
+      <div class="ps-card" id="ps-k6a" style="transform: rotate(-3deg)"><div class="ps-photo"><img src="assets/fotos/filmacion-1.jpg" alt="Filmación, video 1" /></div></div>
+      <div class="ps-card" id="ps-k6b" style="transform: rotate(4deg)"><div class="ps-photo"><img src="assets/fotos/filmacion-2.jpg" alt="Filmación, video 2" /></div></div>
+    </div>
 
     <div class="ps-copy" id="ps-c1">
-      <div class="ps-num">PASO 01 <span>/ 04</span></div>
+      <div class="ps-num">PASO 01 <span>/ 06</span></div>
       <div class="ps-title">Investigación</div>
       <div class="ps-rule" style="top: 524px"></div>
       <div class="ps-desc" style="top: 562px">Referencias de marcas, análisis de color y armado de la paleta.</div>
     </div>
     <div class="ps-copy" id="ps-c2">
-      <div class="ps-num">PASO 02 <span>/ 04</span></div>
+      <div class="ps-num">PASO 02 <span>/ 06</span></div>
       <div class="ps-title">Exploración tipográfica</div>
       <div class="ps-rule" style="top: 610px"></div>
       <div class="ps-desc" style="top: 648px">Pruebas de letras, volumen y perspectiva en Canva.</div>
     </div>
     <div class="ps-copy" id="ps-c3">
-      <div class="ps-num">PASO 03 <span>/ 04</span></div>
+      <div class="ps-num">PASO 03 <span>/ 06</span></div>
       <div class="ps-title">Construcción del logo</div>
       <div class="ps-rule" style="top: 610px"></div>
       <div class="ps-desc" style="top: 648px">Isotipo y logotipo de Futuro Digital Lab, trabajados en equipo.</div>
     </div>
     <div class="ps-copy" id="ps-c4">
-      <div class="ps-num">PASO 04 <span>/ 04</span></div>
+      <div class="ps-num">PASO 04 <span>/ 06</span></div>
       <div class="ps-title">Prueba de producto</div>
       <div class="ps-rule" style="top: 610px"></div>
       <div class="ps-desc" style="top: 648px">El portacelular, probado en uso en el aula.</div>
+    </div>
+
+    <div class="ps-copy" id="ps-c5">
+      <div class="ps-num">PASO 05 <span>/ 06</span></div>
+      <div class="ps-title">Planificación de los videos</div>
+      <div class="ps-rule" style="top: 610px"></div>
+      <div class="ps-desc" style="top: 648px">Idea, guion y storyboard: cada escena pensada antes de filmar.</div>
+    </div>
+    <div class="ps-copy" id="ps-c6">
+      <div class="ps-num">PASO 06 <span>/ 06</span></div>
+      <div class="ps-title">Filmación de los videos</div>
+      <div class="ps-rule" style="top: 610px"></div>
+      <div class="ps-desc" style="top: 648px">Rodaje en el aula, con el portacelular como protagonista.</div>
     </div>
 
     <div class="ps-tag" id="ps-tag"><b>Backstage</b><span>Proceso de trabajo</span></div>
@@ -135,9 +193,9 @@
 
     tl.fromTo("#ps-tag", { opacity: 0, filter: "blur(6px)" }, { opacity: 1, filter: "blur(0px)", duration: 0.4, ease: "power2.out" }, 0.2);
 
-    const ROT = [-4, 3, -2, 2];
+    const ROT = [-4, 3, -2, 2, -1, 0];
     const BEAT = 5.4;
-    for (let i = 1; i <= 4; i++) {
+    for (let i = 1; i <= 6; i++) {
       const t = 0.2 + (i - 1) * BEAT;
       const k = `#ps-k${i}`;
       const c = `#ps-c${i}`;
@@ -164,8 +222,8 @@
     }
 
     // Clear the pile for the closing
-    const END = 0.2 + 4 * BEAT - 0.3;
-    tl.to(["#ps-k3", "#ps-k4"], { opacity: 0, y: 40, filter: "blur(10px)", duration: 0.4, ease: "power3.in", stagger: 0.05 }, END - 0.1);
+    const END = 0.2 + 6 * BEAT - 0.3;
+    tl.to(["#ps-k5", "#ps-k6"], { opacity: 0, y: 40, filter: "blur(10px)", duration: 0.4, ease: "power3.in", stagger: 0.05 }, END - 0.1);
     tl.to("#ps-tag", { opacity: 0, filter: "blur(6px)", duration: 0.25, ease: "power2.in" }, END);
 
     window.__timelines["pasos"] = tl;

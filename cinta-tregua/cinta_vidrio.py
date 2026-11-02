@@ -68,6 +68,12 @@ RESOLUCION = (1080, 1920) # vertical, como la referencia
 MUESTRAS = 160
 FLOTAR = 0.08             # cuánto sube y baja
 BALANCEO = 3.0            # grados que se mece
+PAUSAS = 2                # veces por vuelta que el giro casi se detiene (texto de frente)
+FRENADA = 0.8             # cuánto frena en esas pausas (0 = giro parejo, 1 = se detiene)
+ACERCAMIENTO = 0.05       # la cámara se acerca y se aleja apenas (fracción de la distancia)
+ORBITA = 4.0              # grados que la cámara rodea la cinta, ida y vuelta
+BARRIDO = (0.42, 0.62)    # parte del loop en la que una luz recorre la cinta de arriba a abajo
+DESENFOQUE_MOVIMIENTO = 0.5  # obturador: 0 = sin desenfoque de movimiento
 # -----------------------------------------------------------------------------
 
 LARGO_VUELTA = math.hypot(2 * math.pi * RADIO, PASO)
@@ -436,6 +442,9 @@ def crear_cinta(mat_frente, mat_resto, mat_puntas):
             cara((afuera[i][j], afuera[i][j + 1], adentro[i][j + 1], adentro[i][j]), 2)
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])  # todas hacia afuera del sólido
 
+    # el eje de giro pasa por el centro real de la forma: gira en su lugar sin irse de lado
+    centro = sum((v.co for v in bm.verts), Vector()) / len(bm.verts)
+    bmesh.ops.translate(bm, verts=bm.verts, vec=Vector((-centro.x, -centro.y, -centro.z)))
     me = bpy.data.meshes.new("CintaVidrio")
     bm.to_mesh(me)
     bm.free()
@@ -522,6 +531,7 @@ def crear_fondo():
     nt.links.new(plano.outputs["Vector"], distancia.inputs[0])
     halo = nt.nodes.new("ShaderNodeMapRange")
     halo.inputs["From Min"].default_value, halo.inputs["From Max"].default_value = 0.11, 0.0
+    halo.name = "Halo"
     halo.inputs["To Max"].default_value = 0.6
     nt.links.new(distancia.outputs["Value"], halo.inputs["Value"])
     halo_suave = nt.nodes.new("ShaderNodeMath")
@@ -574,6 +584,12 @@ def configurar_render():
     except (TypeError, AttributeError):
         pass
     escena.render.filepath = "//cinta_vidrio_"
+    escena.render.use_motion_blur = DESENFOQUE_MOVIMIENTO > 0
+    escena.render.motion_blur_shutter = DESENFOQUE_MOVIMIENTO
+    # 4. calidad final más rápida: muestreo adaptativo y datos persistentes entre cuadros
+    escena.cycles.use_adaptive_sampling = True
+    escena.cycles.adaptive_threshold = 0.01
+    escena.render.use_persistent_data = True
     configurar_resplandor(escena)
 
 
@@ -642,9 +658,7 @@ def main():
 
     # Cámara: lente larga, apenas desde arriba
     cam_data = bpy.data.cameras.new("Camara")
-    cam_data.lens = 78
-    cam_data.shift_x = 0.035   # la espiral queda centrada y con aire abajo
-    cam_data.shift_y = -0.02
+    cam_data.lens = 70         # un poco más abierta: la cinta tiene aire en todo el giro
     cam_data.dof.use_dof = True
     cam_data.dof.focus_distance = 16.0
     cam_data.dof.aperture_fstop = 5.6
@@ -679,6 +693,10 @@ def main():
     # acento chico de costado y abajo: marca el volumen de los cantos redondeados de las puntas
     luz("Acento puntas", 120, (3.5, 2.5, -5), (0.8, 0, -2.2), 0.8, 0.8, (1.0, 0.92, 0.98))
 
+    # 5. barrido: una tira horizontal adelante que baja una vez por loop y deja un brillo
+    #    que recorre la cinta; fuera de su tramo queda apagada
+    barrido = luz("Barrido", 0, (0, -7, 9), (0, 0, 0), 9, 0.5)
+
     configurar_mundo()
     configurar_render()
 
@@ -688,12 +706,44 @@ def main():
     prefs = bpy.context.preferences.edit
     interp_original = prefs.keyframe_new_interpolation_type
     prefs.keyframe_new_interpolation_type = "LINEAR"
+    halo = bpy.data.materials["Fondo celeste"].node_tree.nodes["Halo"].inputs["To Max"]
+    distancia_cam = cam.location.length
     try:
         for f in range(total + 1):
-            a = 2 * math.pi * f / total
-            # el giro va sobre el eje propio de la espiral; la inclinación y el vaivén, en el pivote
-            cinta.rotation_euler = (0, 0, a)
+            u = f / total
+            a = 2 * math.pi * u
+            # 6. ritmo con pausas: frena (casi se detiene) PAUSAS veces por vuelta, con el texto
+            #    de frente, y retoma; siempre hacia adelante y vuelve justo al inicio
+            giro = a - FRENADA * math.sin(PAUSAS * a) / PAUSAS
+            cinta.rotation_euler = (0, 0, giro)
             cinta.keyframe_insert("rotation_euler", index=2, frame=f + 1)
+
+            # 7. cámara: acercamiento lento y una órbita chica, ida y vuelta
+            d = distancia_cam * (1 - ACERCAMIENTO * (1 - math.cos(a)) / 2)
+            az = math.radians(ORBITA) * math.sin(a)
+            cam.location = (d * math.sin(az) * 0.99, -d * math.cos(az) * 0.99, 3.2 * d / distancia_cam)
+            cam.rotation_euler = (Vector((0, 0, 0)) - cam.location).to_track_quat("-Z", "Y").to_euler()
+            cam.keyframe_insert("location", frame=f + 1)
+            cam.keyframe_insert("rotation_euler", frame=f + 1)
+
+            # 5. barrido de luz
+            t0, t1 = BARRIDO
+            if t0 <= u <= t1:
+                k = (u - t0) / (t1 - t0)
+                barrido.location = (0, -7, 9 - 18 * k)
+                barrido.data.energy = 900 * math.sin(math.pi * k) ** 2
+            else:
+                barrido.location = (0, -7, 9)
+                barrido.data.energy = 0
+            barrido.rotation_euler = (Vector((0, 0, 0)) - barrido.location).to_track_quat("-Z", "Y").to_euler()
+            barrido.keyframe_insert("location", frame=f + 1)
+            barrido.keyframe_insert("rotation_euler", frame=f + 1)
+            barrido.data.keyframe_insert("energy", frame=f + 1)
+
+            # 8. el halo del fondo respira con el giro: más intenso en las pausas
+            halo.default_value = 0.45 + 0.25 * (1 + math.cos(PAUSAS * a)) / 2
+            halo.keyframe_insert("default_value", frame=f + 1)
+
             pivote.rotation_euler = Euler((
                 math.radians(BALANCEO) * math.sin(2 * a + 0.5),
                 inclinacion + math.radians(BALANCEO * 0.7) * math.sin(a + 1.1),

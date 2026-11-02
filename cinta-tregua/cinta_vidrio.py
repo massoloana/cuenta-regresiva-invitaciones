@@ -35,8 +35,8 @@ SEPARACION = 1.1          # espacio entre repeticiones, en anchos de cinta
 # Tipografía: Archivo Expanded Medium (Google Fonts, licencia OFL), en la carpeta fuentes/ al
 # lado del script. Podés poner la ruta a otro .ttf/.otf; si no la encuentra, usa la de Blender.
 FONT_PATH = "fuentes/ArchivoExpanded-Medium.ttf"
-ALTO_GRABADO = 0.34       # alto de las mayúsculas respecto del ancho de la cinta
-CORRER_GRABADO = -0.6     # corre el texto a lo largo de la cinta (metros), para el encuadre
+ALTO_GRABADO = 0.27       # alto de las mayúsculas: la frase entera entra en la cara de adelante
+CORRER_GRABADO = None     # None = centra "TREGUA TALLER" de frente en las pausas; o metros a mano
 
 # Degradé a lo largo de la cinta (de abajo hacia arriba)
 DEGRADE = [
@@ -71,7 +71,8 @@ BALANCEO = 3.0            # grados que se mece
 PAUSAS = 2                # veces por vuelta que el giro casi se detiene (texto de frente)
 FRENADA = 0.8             # cuánto frena en esas pausas (0 = giro parejo, 1 = se detiene)
 ACERCAMIENTO = 0.05       # la cámara se acerca y se aleja apenas (fracción de la distancia)
-ORBITA = 4.0              # grados que la cámara rodea la cinta, ida y vuelta
+ORBITA = 2.0              # grados que la cámara rodea la cinta, ida y vuelta
+SEGUIR_FORMA = 0.7        # cuánto acompaña la cámara a la silueta para que no se corra de lado
 BARRIDO = (0.42, 0.62)    # parte del loop en la que una luz recorre la cinta de arriba a abajo
 DESENFOQUE_MOVIMIENTO = 0.5  # obturador: 0 = sin desenfoque de movimiento
 # -----------------------------------------------------------------------------
@@ -171,8 +172,12 @@ def imagen_del_grabado():
     xs = [v.co.x for v in me.vertices]
     ys = [v.co.y for v in me.vertices]
     largo_texto = max(xs) - min(xs)
-    repeticiones = max(1, round(LARGO_TOTAL / (largo_texto + SEPARACION * ANCHO)))
-    margen = (LARGO_TOTAL / repeticiones - largo_texto) / 2
+    # una cantidad par de repeticiones por vuelta: en las dos pausas de cada giro la frase
+    # queda centrada de frente
+    por_vuelta = max(2, 2 * round(LARGO_VUELTA / (largo_texto + SEPARACION * ANCHO) / 2))
+    while por_vuelta > 2 and LARGO_VUELTA / por_vuelta < largo_texto + 0.3:
+        por_vuelta -= 2
+    margen = (LARGO_VUELTA / por_vuelta - largo_texto) / 2
     bm = bmesh.new()
     bm.from_mesh(me)
     bmesh.ops.translate(bm, verts=bm.verts,
@@ -294,7 +299,13 @@ def material_vidrio(nombre, grabado=None, claridad=0.32):
     ubica = nt.nodes.new("ShaderNodeMapping")
     ubica.inputs["Scale"].default_value = (1 / largo, 1 / ANCHO, 1)
     # corrido medio corte diagonal: las palabras completas arrancan después de la punta
-    ubica.inputs["Location"].default_value = (-(CORTE_DIAGONAL * ANCHO / 2 + CORRER_GRABADO) / largo, 0, 0)
+    if CORRER_GRABADO is None:
+        # el centro de la cara de adelante (vuelta de arriba, primer cuadro) cae a 1.75 vueltas
+        frente = 1.75 * LARGO_VUELTA
+        correr = (frente - CORTE_DIAGONAL * ANCHO / 2 - 0.5 * largo) % largo
+    else:
+        correr = CORRER_GRABADO
+    ubica.inputs["Location"].default_value = (-(CORTE_DIAGONAL * ANCHO / 2 + correr) / largo, 0, 0)
     tex = nt.nodes.new("ShaderNodeTexImage")
     tex.image = img
     tex.extension = "REPEAT"  # "TREGUA TALLER" en loop a lo largo de toda la cinta
@@ -695,7 +706,7 @@ def main():
 
     # 5. barrido: una tira horizontal adelante que baja una vez por loop y deja un brillo
     #    que recorre la cinta; fuera de su tramo queda apagada
-    barrido = luz("Barrido", 0, (0, -7, 9), (0, 0, 0), 9, 0.5)
+    barrido = luz("Barrido", 0, (0, -7, 9), (0, 0, 0), 12, 1.2)
 
     configurar_mundo()
     configurar_render()
@@ -731,7 +742,7 @@ def main():
             if t0 <= u <= t1:
                 k = (u - t0) / (t1 - t0)
                 barrido.location = (0, -7, 9 - 18 * k)
-                barrido.data.energy = 900 * math.sin(math.pi * k) ** 2
+                barrido.data.energy = 2200 * math.sin(math.pi * k) ** 2
             else:
                 barrido.location = (0, -7, 9)
                 barrido.data.energy = 0
@@ -754,7 +765,46 @@ def main():
             pivote.keyframe_insert("location", frame=f + 1)
     finally:
         prefs.keyframe_new_interpolation_type = interp_original
+    seguir_silueta(escena, cam, cinta, total)
     escena.frame_set(1)
+
+
+def seguir_silueta(escena, cam, cinta, total):
+    """Paneo suave: la cámara acompaña el centro de la silueta para que no se corra de lado.
+
+    La espiral no es simétrica, así que al girar su silueta se desplaza en el cuadro aunque
+    gire sobre su centro. Se mide cuadro a cuadro, se suaviza y se corrige el apuntado.
+    """
+    if SEGUIR_FORMA <= 0:
+        return
+    vertices = cinta.data.vertices
+    muestras = [vertices[i].co.copy() for i in range(0, len(vertices), 25)]
+    centros = []
+    for f in range(1, total + 1):
+        escena.frame_set(f)
+        a_cam = cam.matrix_world.inverted() @ cinta.matrix_world
+        xs = []
+        for p in muestras:
+            q = a_cam @ p
+            xs.append(q.x / -q.z)
+        centros.append((min(xs) + max(xs)) / 2)
+    # suavizado circular (el loop empalma) para que el paneo no tiemble
+    ventana = 24
+    suaves = [sum(centros[(i + k) % total] for k in range(-ventana, ventana + 1)) / (2 * ventana + 1)
+              for i in range(total)]
+    prefs = bpy.context.preferences.edit
+    interp_original = prefs.keyframe_new_interpolation_type
+    prefs.keyframe_new_interpolation_type = "LINEAR"
+    try:
+        for i, c in enumerate(suaves + suaves[:1]):
+            escena.frame_set(i + 1)
+            hacia = (-cam.location).normalized()
+            derecha = hacia.cross(Vector((0, 0, 1))).normalized()  # derecha del cuadro
+            objetivo = derecha * (c * cam.location.length * SEGUIR_FORMA)
+            cam.rotation_euler = (objetivo - cam.location).to_track_quat("-Z", "Y").to_euler()
+            cam.keyframe_insert("rotation_euler", frame=i + 1)
+    finally:
+        prefs.keyframe_new_interpolation_type = interp_original
 
 
 main()

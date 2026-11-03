@@ -28,7 +28,8 @@ COLOR_PREGUNTA = ("#7A45FF", "#E4DCFF")      # violeta → lavanda casi blanca, 
 COLOR_FONDO = "#B4D2F2"   # celeste de la cinta de vidrio
 COLOR_FONDO_LUZ = "#EAF2FC"
 
-ESMERILADO = 0.5          # 0 = vidrio transparente, 0.6 = muy lechoso
+ESMERILADO = 0.55         # 0 = vidrio transparente, 0.6 = muy lechoso
+ARENADO = 0.35            # cuánto se nota el granito del arenado en la superficie
 GROSOR = 0.36             # radio del trazo de los signos
 ALTO = 3.0                # alto de los signos
 
@@ -42,6 +43,13 @@ def hex_a_lineal(h):
     srgb = [int(h[i:i + 2], 16) / 255 for i in (0, 2, 4)]
     lin = [c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4 for c in srgb]
     return (*lin, 1.0)
+
+
+def mezclar_hex(a, b, t):
+    """Color entre a y b (t = 0 → a, t = 1 → b), en hex."""
+    ca = [int(a.lstrip("#")[i:i + 2], 16) for i in (0, 2, 4)]
+    cb = [int(b.lstrip("#")[i:i + 2], 16) for i in (0, 2, 4)]
+    return "#" + "".join(f"{round(x + (y - x) * t):02X}" for x, y in zip(ca, cb))
 
 
 def limpiar_escena():
@@ -220,6 +228,24 @@ def material_esmerilado(nombre, color_arriba, color_abajo, z_min, z_max):
     nt.links.new(coord.outputs["Object"], grano.inputs["Vector"])
     nt.links.new(grano.outputs["Fac"], rango.inputs["Value"])
     nt.links.new(rango.outputs["Result"], bsdf.inputs["Roughness"])
+
+    # el esmerilado que se ve: granito en relieve que agarra la luz, y un velo lechoso en los
+    # bordes (donde se mira de costado), como el vidrio arenado
+    arena = nt.nodes.new("ShaderNodeTexNoise")
+    arena.inputs["Scale"].default_value = 260.0
+    arena.inputs["Detail"].default_value = 6.0
+    relieve = nt.nodes.new("ShaderNodeBump")
+    relieve.inputs["Strength"].default_value = ARENADO
+    relieve.inputs["Distance"].default_value = 0.004
+    nt.links.new(coord.outputs["Object"], arena.inputs["Vector"])
+    nt.links.new(arena.outputs["Fac"], relieve.inputs["Height"])
+    nt.links.new(relieve.outputs["Normal"], bsdf.inputs["Normal"])
+    sheen = entrada(bsdf, "Sheen Weight", "Sheen")
+    if sheen:
+        sheen.default_value = 0.6
+    sheen_r = entrada(bsdf, "Sheen Roughness")
+    if sheen_r:
+        sheen_r.default_value = 0.35
     mat.diffuse_color = hex_a_lineal(color_arriba)
     return mat
 
@@ -262,6 +288,8 @@ def crear_estudio():
     if coat_r:
         coat_r.default_value = 0.12
     me.materials.append(mat)
+    # el vidrio no "ve" el piso al refractar: sin manchas blancas en la base de cada pieza
+    ob.visible_transmission = False
     return ob
 
 
@@ -300,13 +328,20 @@ def main():
     piezas = []
     for armar, colores, pos, giro in (
         (pregunta, COLOR_PREGUNTA, (-0.55, 0.75, 0), -16),
-        (exclamacion, COLOR_EXCLAMACION, (0.5, -0.35, 0), 12),
+        (exclamacion, COLOR_EXCLAMACION, (0.3, -0.35, 0), 12),
     ):
         grupo = bpy.data.objects.new(armar.__name__.capitalize(), None)
         escena.collection.objects.link(grupo)
         mat = material_esmerilado("Vidrio " + armar.__name__, colores[0], colores[1], 0.0, ALTO)
+        # el punto lleva su propio degradé corto, con el color del signo: no queda gris
+        medio = mezclar_hex(colores[0], colores[1], 0.45)
+        mat_punto = material_esmerilado("Vidrio punto " + armar.__name__, medio, colores[1],
+                                        0.0, 2 * GROSOR)
         for ob in armar():
-            ob.data.materials.append(mat)
+            ob.data.materials.append(mat_punto if "punto" in ob.name else mat)
+            # malla suavizada: sin pliegues en las curvas
+            sub = ob.modifiers.new("Suave", "SUBSURF")
+            sub.levels, sub.render_levels = 1, 1
             ob.parent = grupo
             piezas.append(ob)
         grupo.location = pos
@@ -345,13 +380,12 @@ def main():
 
     # softbox grande arriba a la izquierda, contraluz que enciende el vidrio desde atrás
     luz("Softbox", 300, (-5, -3, 7), 6, 6)
-    # contraluz baja, entre los signos y la pared: la luz atraviesa el vidrio y lo enciende
-    # desde adentro (emite sólo hacia adelante, así no mancha la pared)
-    luz("Contraluz", 110, (0.3, 3.8, 3.2), 7, 4, (1.0, 0.96, 0.98),
-        mira=(0, -3, 0.8), abertura=40,   # grande: brillo interno suave, sin puntos quemados
-        en_reflejos=False)                # el piso no refleja el panel, sólo los signos
+    # contraluz enorme y suave, a la altura de los signos: enciende el vidrio desde adentro
+    # sin concentrarse en puntos (una chica o inclinada quemaba las puntas de abajo)
+    luz("Contraluz", 70, (0.2, 4.2, 2.0), 10, 7, (1.0, 0.95, 0.99),
+        mira=(0, -3, 1.6), abertura=60, en_reflejos=False)
     # la pared del fondo bañada desde arriba: el celeste se aclara hacia arriba
-    luz("Pared", 220, (0, 2.5, 10), 14, 8, mira=(0, 7, 2.0))
+    luz("Pared", 320, (0, 2.5, 10), 14, 8, mira=(0, 7, 2.0))
     luz("Relleno", 70, (6, -5, 3), 4, 4, (0.92, 0.95, 1.0))
 
     configurar_mundo()

@@ -22,14 +22,14 @@ from mathutils import Vector
 
 # ------------------------------------------------------------------ PARÁMETROS
 # Cada signo: color intenso arriba que se desvanece a blanco lechoso abajo
-COLOR_EXCLAMACION = ("#F0409F", "#FFDDF0")   # magenta → rosa casi blanco, translúcido
-COLOR_PREGUNTA = ("#7A45FF", "#E4DCFF")      # violeta → lavanda casi blanca, translúcida
+COLOR_EXCLAMACION = ("#FF5AC0", "#FFC6E6")   # magenta → rosa casi blanco, translúcido
+COLOR_PREGUNTA = ("#7A45FF", "#D3C6FF")      # violeta → lavanda casi blanca, translúcida
 
 COLOR_FONDO = "#B4D2F2"   # celeste de la cinta de vidrio
 COLOR_FONDO_LUZ = "#EAF2FC"
 
 ESMERILADO = 0.55         # 0 = vidrio transparente, 0.6 = muy lechoso
-ARENADO = 0.35            # cuánto se nota el granito del arenado en la superficie
+ARENADO = 0.32            # cuánto se nota el granito del arenado en la superficie
 GROSOR = 0.36             # radio del trazo de los signos
 ALTO = 3.0                # alto de los signos
 
@@ -158,30 +158,58 @@ def exclamacion():
     return [palo, punto]
 
 
-def curva_suave(puntos, por_tramo=24):
-    """Catmull-Rom por los puntos dados: un trazo continuo, sin quiebres."""
-    p = [Vector(x) for x in puntos]
-    p = [p[0] * 2 - p[1]] + p + [p[-1] * 2 - p[-2]]
-    salida = []
-    for i in range(1, len(p) - 2):
-        p0, p1, p2, p3 = p[i - 1], p[i], p[i + 1], p[i + 2]
-        for k in range(por_tramo):
-            t = k / por_tramo
-            salida.append(0.5 * ((2 * p1) + (-p0 + p2) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t * t +
-                                 (-p0 + 3 * p1 - 3 * p2 + p3) * t ** 3))
-    salida.append(p[-2])
-    return salida
-
-
 def pregunta():
-    """Gancho que baja a un tallo corto + punto. En el plano XZ, apoyado en z = 0."""
-    r = GROSOR
-    punto = esfera("Pregunta punto", (0, 0, r), r)
-    e = ALTO / 3.0  # escala del dibujo (hecho para 3 de alto)
-    dibujo = [(-0.64, 2.18), (-0.56, 2.56), (-0.24, 2.80), (0.18, 2.80), (0.56, 2.58),
-              (0.66, 2.20), (0.48, 1.88), (0.16, 1.66), (0.03, 1.46), (0.02, 1.28)]
-    camino = [Vector((x * e, 0, z * e)) for x, _, z in
-              ((v.x, 0, v.y) for v in curva_suave(dibujo))]
+    """Gancho que baja a un tallo corto + punto. En el plano XZ, apoyado en z = 0.
+
+    Se dibuja con arcos y rectas, nunca más cerrado que el grosor del trazo: así el tubo
+    no se pliega sobre sí mismo en las curvas (eso dejaba marcas oscuras en el vidrio).
+    """
+    r = GROSOR * 0.86  # el trazo del "?" un poco más fino: el gancho respira
+    punto = esfera("Pregunta punto", (0, 0, GROSOR), GROSOR)
+    e = ALTO / 3.0
+    r_gancho, r_codo = 0.6 * e, max(0.42 * e, r * 1.4)
+    giro_fin = math.radians(-40)      # dónde termina el arco del gancho
+    rumbo = giro_fin - math.pi / 2    # hacia dónde sale (abajo a la izquierda)
+
+    def trazar(recta):
+        pts = []
+        for i in range(121):  # gancho: arco de 160° a -40°, en sentido horario
+            a = math.radians(160) + (giro_fin - math.radians(160)) * i / 120
+            pts.append(Vector((r_gancho * math.cos(a), 0, r_gancho * math.sin(a))))
+        p = pts[-1].copy()
+        d = Vector((math.cos(rumbo), 0, math.sin(rumbo)))
+        for i in range(1, 21):  # recta en diagonal
+            pts.append(p + d * recta * i / 20)
+        p = pts[-1].copy()
+        izq = Vector((math.cos(rumbo + math.pi / 2), 0, math.sin(rumbo + math.pi / 2)))
+        centro = p + izq * r_codo
+        for i in range(1, 31):  # codo suave hasta quedar vertical
+            fi = rumbo - math.pi / 2 + (math.radians(40)) * i / 30
+            pts.append(centro + Vector((math.cos(fi), 0, math.sin(fi))) * r_codo)
+        p = pts[-1].copy()
+        for i in range(1, 16):  # tallo corto
+            pts.append(p + Vector((0, 0, -0.28 * e)) * i / 15)
+        return pts
+
+    # largo de la recta para que el tallo caiga justo sobre el punto (x = 0)
+    lo, hi = 0.0, 2.0
+    for _ in range(40):
+        mid = (lo + hi) / 2
+        if trazar(mid)[-1].x > 0.02:
+            lo = mid
+        else:
+            hi = mid
+    camino = trazar((lo + hi) / 2)
+    # se sube todo para dejar el aire de siempre entre el tallo y el punto
+    alto_tallo = 2 * GROSOR + 0.42 + r * 0.6
+    dz = alto_tallo - camino[-1].z
+    camino = [p + Vector((0, 0, dz)) for p in camino]
+    # que entre en el alto de siempre: se escala desde el pie del tallo
+    tope = max(p.z for p in camino) + r
+    if tope > ALTO:
+        k = (ALTO - r - alto_tallo) / (tope - r - alto_tallo)
+        pie = camino[-1]
+        camino = [Vector((pie.x + (p.x - pie.x) * k, 0, pie.z + (p.z - pie.z) * k)) for p in camino]
     gancho = tubo("Pregunta gancho", camino,
                   lambda t: r * (1.05 - 0.15 * t * t * (3 - 2 * t)))
     return [gancho, punto]
@@ -227,12 +255,23 @@ def material_esmerilado(nombre, color_arriba, color_abajo, z_min, z_max):
     rango.inputs["To Max"].default_value = ESMERILADO * 1.15
     nt.links.new(coord.outputs["Object"], grano.inputs["Vector"])
     nt.links.new(grano.outputs["Fac"], rango.inputs["Value"])
-    nt.links.new(rango.outputs["Result"], bsdf.inputs["Roughness"])
+    # de frente menos esmerilado (se ve el color de atrás a través), en los bordes más lechoso
+    costado = nt.nodes.new("ShaderNodeLayerWeight")
+    costado.inputs["Blend"].default_value = 0.45
+    segun_angulo = nt.nodes.new("ShaderNodeMapRange")
+    segun_angulo.inputs["To Min"].default_value = 0.55
+    segun_angulo.inputs["To Max"].default_value = 1.15
+    nt.links.new(costado.outputs["Facing"], segun_angulo.inputs["Value"])
+    rugosidad = nt.nodes.new("ShaderNodeMath")
+    rugosidad.operation = "MULTIPLY"
+    nt.links.new(rango.outputs["Result"], rugosidad.inputs[0])
+    nt.links.new(segun_angulo.outputs["Result"], rugosidad.inputs[1])
+    nt.links.new(rugosidad.outputs["Value"], bsdf.inputs["Roughness"])
 
     # el esmerilado que se ve: granito en relieve que agarra la luz, y un velo lechoso en los
     # bordes (donde se mira de costado), como el vidrio arenado
     arena = nt.nodes.new("ShaderNodeTexNoise")
-    arena.inputs["Scale"].default_value = 260.0
+    arena.inputs["Scale"].default_value = 190.0
     arena.inputs["Detail"].default_value = 6.0
     relieve = nt.nodes.new("ShaderNodeBump")
     relieve.inputs["Strength"].default_value = ARENADO
@@ -328,7 +367,7 @@ def main():
     piezas = []
     for armar, colores, pos, giro in (
         (pregunta, COLOR_PREGUNTA, (-0.55, 0.75, 0), -16),
-        (exclamacion, COLOR_EXCLAMACION, (0.3, -0.35, 0), 12),
+        (exclamacion, COLOR_EXCLAMACION, (0.48, -0.35, 0), 12),
     ):
         grupo = bpy.data.objects.new(armar.__name__.capitalize(), None)
         escena.collection.objects.link(grupo)
@@ -382,10 +421,10 @@ def main():
     luz("Softbox", 300, (-5, -3, 7), 6, 6)
     # contraluz enorme y suave, a la altura de los signos: enciende el vidrio desde adentro
     # sin concentrarse en puntos (una chica o inclinada quemaba las puntas de abajo)
-    luz("Contraluz", 70, (0.2, 4.2, 2.0), 10, 7, (1.0, 0.95, 0.99),
+    luz("Contraluz", 45, (0.2, 4.2, 2.0), 10, 7, (1.0, 0.95, 0.99),
         mira=(0, -3, 1.6), abertura=60, en_reflejos=False)
     # la pared del fondo bañada desde arriba: el celeste se aclara hacia arriba
-    luz("Pared", 320, (0, 2.5, 10), 14, 8, mira=(0, 7, 2.0))
+    luz("Pared", 380, (0, 2.5, 11), 18, 10, mira=(0, 7, 3.0))  # amplia: aclara arriba sin bordes
     luz("Relleno", 70, (6, -5, 3), 4, 4, (0.92, 0.95, 1.0))
 
     configurar_mundo()

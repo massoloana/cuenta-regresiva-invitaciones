@@ -22,13 +22,13 @@ from mathutils import Vector
 
 # ------------------------------------------------------------------ PARÁMETROS
 # Cada signo: color intenso arriba que se desvanece a blanco lechoso abajo
-COLOR_EXCLAMACION = ("#F0409F", "#FFC9E8")   # magenta → rosa lechoso
-COLOR_PREGUNTA = ("#7A45FF", "#D6CCFF")      # violeta → lavanda lechosa
+COLOR_EXCLAMACION = ("#F0409F", "#FFDDF0")   # magenta → rosa casi blanco, translúcido
+COLOR_PREGUNTA = ("#7A45FF", "#E4DCFF")      # violeta → lavanda casi blanca, translúcida
 
 COLOR_FONDO = "#B4D2F2"   # celeste de la cinta de vidrio
 COLOR_FONDO_LUZ = "#EAF2FC"
 
-ESMERILADO = 0.38         # 0 = vidrio transparente, 0.6 = muy lechoso
+ESMERILADO = 0.5          # 0 = vidrio transparente, 0.6 = muy lechoso
 GROSOR = 0.36             # radio del trazo de los signos
 ALTO = 3.0                # alto de los signos
 
@@ -145,7 +145,8 @@ def exclamacion():
     punto = esfera("Exclamacion punto", (0, 0, r), r)
     abajo, arriba = 2 * r + 0.45 + r * 0.8, ALTO - r * 1.15
     camino = [Vector((0, 0, arriba + (abajo - arriba) * i / 60)) for i in range(61)]
-    palo = tubo("Exclamacion palo", camino, lambda t: r * (1.15 - 0.35 * t))
+    suave = lambda t: t * t * (3 - 2 * t)  # sin pendiente en las puntas: no marca un aro
+    palo = tubo("Exclamacion palo", camino, lambda t: r * (1.15 - 0.35 * suave(t)))
     return [palo, punto]
 
 
@@ -173,7 +174,8 @@ def pregunta():
               (0.66, 2.20), (0.48, 1.88), (0.16, 1.66), (0.03, 1.46), (0.02, 1.28)]
     camino = [Vector((x * e, 0, z * e)) for x, _, z in
               ((v.x, 0, v.y) for v in curva_suave(dibujo))]
-    gancho = tubo("Pregunta gancho", camino, lambda t: r * (1.05 - 0.15 * t))
+    gancho = tubo("Pregunta gancho", camino,
+                  lambda t: r * (1.05 - 0.15 * t * t * (3 - 2 * t)))
     return [gancho, punto]
 
 
@@ -188,7 +190,7 @@ def material_esmerilado(nombre, color_arriba, color_abajo, z_min, z_max):
     bsdf.inputs["Roughness"].default_value = ESMERILADO
     coat = entrada(bsdf, "Coat Weight", "Clearcoat")
     if coat:  # una capa de brillo muy suave encima, como el vidrio arenado y luego pulido
-        coat.default_value = 0.15
+        coat.default_value = 0.0  # sin laca: mate y suave, como el vidrio arenado
     coat_r = entrada(bsdf, "Coat Roughness", "Clearcoat Roughness")
     if coat_r:
         coat_r.default_value = 0.2
@@ -200,8 +202,9 @@ def material_esmerilado(nombre, color_arriba, color_abajo, z_min, z_max):
     alto.inputs["From Max"].default_value = z_max
     rampa = nt.nodes.new("ShaderNodeValToRGB")
     els = rampa.color_ramp.elements
-    els[0].position, els[0].color = 0.15, hex_a_lineal(color_abajo)
-    els[1].position, els[1].color = 0.8, hex_a_lineal(color_arriba)
+    # degradé marcado: la mitad de abajo se desvanece casi a blanco translúcido
+    els[0].position, els[0].color = 0.12, hex_a_lineal(color_abajo)
+    els[1].position, els[1].color = 0.85, hex_a_lineal(color_arriba)
     rampa.color_ramp.interpolation = "EASE"
     nt.links.new(coord.outputs["Object"], sep.inputs["Vector"])
     nt.links.new(sep.outputs["Z"], alto.inputs["Value"])
@@ -296,8 +299,8 @@ def main():
     # signos: el "?" atrás a la izquierda, el "!" adelante a la derecha, apenas encimados
     piezas = []
     for armar, colores, pos, giro in (
-        (pregunta, COLOR_PREGUNTA, (-0.85, 0.55, 0), -18),
-        (exclamacion, COLOR_EXCLAMACION, (0.75, -0.35, 0), 14),
+        (pregunta, COLOR_PREGUNTA, (-0.55, 0.75, 0), -16),
+        (exclamacion, COLOR_EXCLAMACION, (0.5, -0.35, 0), 12),
     ):
         grupo = bpy.data.objects.new(armar.__name__.capitalize(), None)
         escena.collection.objects.link(grupo)
@@ -312,18 +315,20 @@ def main():
 
     # Cámara a 45 grados, lente normal
     cam_data = bpy.data.cameras.new("Camara")
-    cam_data.lens = 85
+    cam_data.lens = 95
     cam_data.dof.use_dof = True
-    cam_data.dof.focus_distance = 11.5
+    cam_data.dof.focus_distance = 12.0
     cam_data.dof.aperture_fstop = 4.0
     cam = bpy.data.objects.new("Camara", cam_data)
     escena.collection.objects.link(cam)
-    centro = Vector((0, 0, 1.35))
-    cam.location = centro + Vector((0, -1, 1)).normalized() * 11.5
+    # a la altura de los signos, mirando de frente (apenas por encima del centro)
+    centro = Vector((0, 0, 1.45))
+    cam.location = centro + Vector((0, -1, 0.06)).normalized() * 12.0
     cam.rotation_euler = (centro - cam.location).to_track_quat("-Z", "Y").to_euler()
     escena.camera = cam
 
-    def luz(nombre, energia, pos, tam_x, tam_y, color=(1, 1, 1), mira=None, abertura=180):
+    def luz(nombre, energia, pos, tam_x, tam_y, color=(1, 1, 1), mira=None, abertura=180,
+            en_reflejos=True):
         datos = bpy.data.lights.new(nombre, "AREA")
         datos.energy = energia
         datos.color = color
@@ -332,6 +337,8 @@ def main():
         ob = bpy.data.objects.new(nombre, datos)
         escena.collection.objects.link(ob)
         datos.spread = math.radians(abertura)  # menos abertura = un haz más dirigido
+        ob.visible_camera = False  # la cámara ve su efecto, no el panel de luz
+        ob.visible_glossy = en_reflejos
         ob.location = pos
         destino = Vector(mira) if mira else centro
         ob.rotation_euler = (destino - Vector(pos)).to_track_quat("-Z", "Y").to_euler()
@@ -340,10 +347,11 @@ def main():
     luz("Softbox", 300, (-5, -3, 7), 6, 6)
     # contraluz baja, entre los signos y la pared: la luz atraviesa el vidrio y lo enciende
     # desde adentro (emite sólo hacia adelante, así no mancha la pared)
-    luz("Contraluz", 380, (0.3, 3.6, 1.5), 3.5, 2.2, (1.0, 0.96, 0.98),
-        mira=(0, -3, 1.7), abertura=30)
+    luz("Contraluz", 110, (0.3, 3.8, 3.2), 7, 4, (1.0, 0.96, 0.98),
+        mira=(0, -3, 0.8), abertura=40,   # grande: brillo interno suave, sin puntos quemados
+        en_reflejos=False)                # el piso no refleja el panel, sólo los signos
     # la pared del fondo bañada desde arriba: el celeste se aclara hacia arriba
-    luz("Pared", 260, (0, 3.5, 9), 8, 3, mira=(0, 7, 2.5))
+    luz("Pared", 220, (0, 2.5, 10), 14, 8, mira=(0, 7, 2.0))
     luz("Relleno", 70, (6, -5, 3), 4, 4, (0.92, 0.95, 1.0))
 
     configurar_mundo()

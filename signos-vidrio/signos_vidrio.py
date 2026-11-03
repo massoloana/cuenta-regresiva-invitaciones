@@ -259,7 +259,7 @@ def material_esmerilado(nombre, color_arriba, color_abajo, z_min, z_max):
     costado = nt.nodes.new("ShaderNodeLayerWeight")
     costado.inputs["Blend"].default_value = 0.45
     segun_angulo = nt.nodes.new("ShaderNodeMapRange")
-    segun_angulo.inputs["To Min"].default_value = 0.55
+    segun_angulo.inputs["To Min"].default_value = 0.48
     segun_angulo.inputs["To Max"].default_value = 1.15
     nt.links.new(costado.outputs["Facing"], segun_angulo.inputs["Value"])
     rugosidad = nt.nodes.new("ShaderNodeMath")
@@ -365,9 +365,11 @@ def main():
 
     # signos: el "?" atrás a la izquierda, el "!" adelante a la derecha, apenas encimados
     piezas = []
-    for armar, colores, pos, giro in (
-        (pregunta, COLOR_PREGUNTA, (-0.55, 0.75, 0), -16),
-        (exclamacion, COLOR_EXCLAMACION, (0.48, -0.35, 0), 12),
+    # el "!" adelante y un poco más chico, cruzado delante del gancho del "?" (no del tallo):
+    # así se ve el violeta a través del rosa y los dos pesan parejo
+    for armar, colores, pos, giro, escala in (
+        (pregunta, COLOR_PREGUNTA, (-0.42, 0.75, 0), -16, 1.06),
+        (exclamacion, COLOR_EXCLAMACION, (0.46, -0.45, 0), 12, 0.92),
     ):
         grupo = bpy.data.objects.new(armar.__name__.capitalize(), None)
         escena.collection.objects.link(grupo)
@@ -385,6 +387,7 @@ def main():
             piezas.append(ob)
         grupo.location = pos
         grupo.rotation_euler = (0, 0, math.radians(giro))
+        grupo.scale = (escala, escala, escala)
     crear_estudio()
 
     # Cámara a 45 grados, lente normal
@@ -418,10 +421,10 @@ def main():
         ob.rotation_euler = (destino - Vector(pos)).to_track_quat("-Z", "Y").to_euler()
 
     # softbox grande arriba a la izquierda, contraluz que enciende el vidrio desde atrás
-    luz("Softbox", 300, (-5, -3, 7), 6, 6)
+    luz("Softbox", 300, (-4, -6, 6), 5, 5)  # adelante: la luz cae pareja, sin bordes en la pared
     # contraluz enorme y suave, a la altura de los signos: enciende el vidrio desde adentro
     # sin concentrarse en puntos (una chica o inclinada quemaba las puntas de abajo)
-    luz("Contraluz", 45, (0.2, 4.2, 2.0), 10, 7, (1.0, 0.95, 0.99),
+    luz("Contraluz", 35, (0.2, 4.2, 2.0), 10, 7, (1.0, 0.95, 0.99),
         mira=(0, -3, 1.6), abertura=60, en_reflejos=False)
     # la pared del fondo bañada desde arriba: el celeste se aclara hacia arriba
     luz("Pared", 380, (0, 2.5, 11), 18, 10, mira=(0, 7, 3.0))  # amplia: aclara arriba sin bordes

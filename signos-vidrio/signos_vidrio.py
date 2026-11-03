@@ -30,6 +30,7 @@ COLOR_FONDO_LUZ = "#EAF2FC"
 
 ESMERILADO = 0.55         # 0 = vidrio transparente, 0.6 = muy lechoso
 ARENADO = 0.32            # cuánto se nota el granito del arenado en la superficie
+DENSIDAD_COLOR = 2.4      # cuánto color toma el vidrio según su espesor (más = más intenso)
 GROSOR = 0.36             # radio del trazo de los signos
 ALTO = 3.0                # alto de los signos
 
@@ -245,7 +246,19 @@ def material_esmerilado(nombre, color_arriba, color_abajo, z_min, z_max):
     nt.links.new(coord.outputs["Object"], sep.inputs["Vector"])
     nt.links.new(sep.outputs["Z"], alto.inputs["Value"])
     nt.links.new(alto.outputs["Result"], rampa.inputs["Fac"])
-    nt.links.new(rampa.outputs["Color"], bsdf.inputs["Base Color"])
+    # 2. el color vive adentro del vidrio (absorción): más intenso donde la pieza es gruesa,
+    #    más claro en los bordes finos. La superficie queda en un tono pastel.
+    pastel = nt.nodes.new("ShaderNodeMix")
+    pastel.data_type = "RGBA"
+    pastel.inputs["Factor"].default_value = 0.4
+    nt.links.new(rampa.outputs["Color"], next(i for i in pastel.inputs if i.identifier == "A_Color"))
+    next(i for i in pastel.inputs if i.identifier == "B_Color").default_value = (1, 1, 1, 1)
+    nt.links.new(next(o for o in pastel.outputs if o.identifier == "Result_Color"),
+                 bsdf.inputs["Base Color"])
+    absorcion = nt.nodes.new("ShaderNodeVolumeAbsorption")
+    absorcion.inputs["Density"].default_value = DENSIDAD_COLOR
+    nt.links.new(rampa.outputs["Color"], absorcion.inputs["Color"])
+    nt.links.new(absorcion.outputs["Volume"], nt.nodes.get("Material Output").inputs["Volume"])
 
     # el grano del esmerilado: la rugosidad varía apenas de punto a punto
     grano = nt.nodes.new("ShaderNodeTexNoise")
@@ -259,7 +272,7 @@ def material_esmerilado(nombre, color_arriba, color_abajo, z_min, z_max):
     costado = nt.nodes.new("ShaderNodeLayerWeight")
     costado.inputs["Blend"].default_value = 0.45
     segun_angulo = nt.nodes.new("ShaderNodeMapRange")
-    segun_angulo.inputs["To Min"].default_value = 0.48
+    segun_angulo.inputs["To Min"].default_value = 0.3   # 1. de frente casi transparente
     segun_angulo.inputs["To Max"].default_value = 1.15
     nt.links.new(costado.outputs["Facing"], segun_angulo.inputs["Value"])
     rugosidad = nt.nodes.new("ShaderNodeMath")
@@ -279,6 +292,16 @@ def material_esmerilado(nombre, color_arriba, color_abajo, z_min, z_max):
     nt.links.new(coord.outputs["Object"], arena.inputs["Vector"])
     nt.links.new(arena.outputs["Fac"], relieve.inputs["Height"])
     nt.links.new(relieve.outputs["Normal"], bsdf.inputs["Normal"])
+    # 3. un reflejo nítido y muy sutil sólo en los bordes, como el vidrio arenado real
+    if coat:
+        borde = nt.nodes.new("ShaderNodeLayerWeight")
+        borde.inputs["Blend"].default_value = 0.25
+        peso = nt.nodes.new("ShaderNodeMapRange")
+        peso.inputs["To Min"].default_value, peso.inputs["To Max"].default_value = 0.0, 0.35
+        nt.links.new(borde.outputs["Fresnel"], peso.inputs["Value"])
+        nt.links.new(peso.outputs["Result"], coat)
+    if coat_r:
+        coat_r.default_value = 0.06
     sheen = entrada(bsdf, "Sheen Weight", "Sheen")
     if sheen:
         sheen.default_value = 0.6

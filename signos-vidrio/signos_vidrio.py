@@ -322,7 +322,7 @@ def configurar_mundo():
     mundo.use_nodes = True
     fondo = mundo.node_tree.nodes.get("Background")
     fondo.inputs["Color"].default_value = hex_a_lineal(COLOR_FONDO_LUZ)
-    fondo.inputs["Strength"].default_value = 0.45
+    fondo.inputs["Strength"].default_value = 0.6
 
 
 def configurar_render():
@@ -341,6 +341,32 @@ def configurar_render():
     escena.view_settings.look = "None"
     escena.render.image_settings.file_format = "PNG"
     escena.render.filepath = "//signos_vidrio"
+    configurar_vineta(escena)
+
+
+def configurar_vineta(escena):
+    """Oscurece suave los bordes del cuadro, como en la referencia (compositor)."""
+    escena.use_nodes = True
+    nt = escena.node_tree
+    nt.nodes.clear()
+    capas = nt.nodes.new("CompositorNodeRLayers")
+    elipse = nt.nodes.new("CompositorNodeEllipseMask")
+    elipse.width, elipse.height = 0.95, 0.95
+    difuminar = nt.nodes.new("CompositorNodeBlur")
+    difuminar.filter_type = "FAST_GAUSS"
+    difuminar.use_relative = True
+    difuminar.factor_x = difuminar.factor_y = 40
+    rango = nt.nodes.new("CompositorNodeMapRange")
+    rango.inputs["To Min"].default_value = 0.72   # cuánto se oscurecen las esquinas
+    rango.inputs["To Max"].default_value = 1.0
+    multiplicar = nt.nodes.new("CompositorNodeMixRGB")
+    multiplicar.blend_type = "MULTIPLY"
+    salida = nt.nodes.new("CompositorNodeComposite")
+    nt.links.new(elipse.outputs["Mask"], difuminar.inputs["Image"])
+    nt.links.new(difuminar.outputs["Image"], rango.inputs["Value"])
+    nt.links.new(capas.outputs["Image"], multiplicar.inputs[1])
+    nt.links.new(rango.outputs["Value"], multiplicar.inputs[2])
+    nt.links.new(multiplicar.outputs["Image"], salida.inputs["Image"])
 
 
 def main():
@@ -402,16 +428,29 @@ def main():
         ob.location = pos
         destino = Vector(mira) if mira else centro
         ob.rotation_euler = (destino - Vector(pos)).to_track_quat("-Z", "Y").to_euler()
+        return ob
 
-    # softbox grande arriba a la izquierda, contraluz que enciende el vidrio desde atrás
-    luz("Softbox", 300, (-4, -6, 6), 5, 5)  # adelante: la luz cae pareja, sin bordes en la pared
-    # contraluz enorme y suave, a la altura de los signos: enciende el vidrio desde adentro
-    # sin concentrarse en puntos (una chica o inclinada quemaba las puntas de abajo)
-    luz("Contraluz", 35, (0.2, 4.2, 2.0), 10, 7, (1.0, 0.95, 0.99),
-        mira=(0, -3, 1.6), abertura=60, en_reflejos=False)
-    # la pared del fondo bañada desde arriba: el celeste se aclara hacia arriba
-    luz("Pared", 380, (0, 2.5, 11), 18, 10, mira=(0, 7, 3.0))  # amplia: aclara arriba sin bordes
-    luz("Relleno", 70, (6, -5, 3), 4, 4, (0.92, 0.95, 1.0))
+    # Como la referencia: la luz fuerte viene de atrás y de arriba y atraviesa el vidrio
+    # (las piezas brillan desde adentro); adelante sólo un relleno bajo, para el contraste
+    # todo se ubica sobre la línea cámara → signos, para que quede justo detrás de ellos
+    hacia = (centro - cam.location).normalized()
+    detras = lambda y: cam.location + hacia * ((y - cam.location.y) / hacia.y)
+    contra = luz("Contraluz", 75, detras(3.4) + Vector((0, 0, 0.9)), 10, 8, (1.0, 0.97, 0.98),
+                 mira=cam.location, abertura=50, en_reflejos=False)
+    luz("Softbox", 200, (-4, -6, 6), 6, 6)
+    luz("Relleno", 30, (6, -5, 3), 4, 4, (0.92, 0.95, 1.0))
+    # el piso adelante, para que no quede gris oscuro contra la pared clara
+    luz("Piso", 260, (0, -4, 7), 10, 6, (0.95, 0.97, 1.0), mira=(0, 1.5, 0), en_reflejos=False)
+    # halo en la pared detrás de los signos (en vez de bañarla entera): los despega del fondo
+    halo_en = detras(7.0)
+    luz("Halo pared", 420, halo_en + Vector((0, -4.0, 0.6)), 6, 6, (1.0, 0.98, 1.0),
+        mira=halo_en + Vector((0, 0, 0.8)))
+
+    # cáusticas: el vidrio proyecta luz de color sobre el piso (más lento de renderizar)
+    contra.data.cycles.is_caustics_light = True
+    for ob in piezas:
+        ob.cycles.is_caustics_caster = True
+    bpy.data.objects["Estudio"].cycles.is_caustics_receiver = True
 
     configurar_mundo()
     configurar_render()

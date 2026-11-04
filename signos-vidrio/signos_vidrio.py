@@ -23,15 +23,16 @@ from mathutils import Matrix, Vector
 
 # ------------------------------------------------------------------ PARÁMETROS
 # Cada signo: color intenso arriba que se desvanece a blanco lechoso abajo
-COLOR_EXCLAMACION = ("#FF5AC0", "#FFC6E6")   # magenta → rosa casi blanco, translúcido
-COLOR_PREGUNTA = ("#7A45FF", "#D3C6FF")      # violeta → lavanda casi blanca, translúcida
+# como la referencia: casi todo esmerilado blanquecino, el color sólo en la punta de arriba
+COLOR_EXCLAMACION = ("#FF5AC0", "#F7F2F5")   # magenta → esmerilado casi blanco
+COLOR_PREGUNTA = ("#7A45FF", "#F2F1F7")      # violeta → esmerilado casi blanco
 
-COLOR_FONDO = "#B4D2F2"   # celeste de la cinta de vidrio
-COLOR_FONDO_LUZ = "#EAF2FC"
+COLOR_FONDO = "#DCE5EE"   # claro como la referencia, apenas celeste
+COLOR_FONDO_LUZ = "#F5F8FB"
 
 ESMERILADO = 0.55         # 0 = vidrio transparente, 0.6 = muy lechoso
 ARENADO = 0.5             # cuánto se nota el granito del arenado en la superficie
-DENSIDAD_COLOR = 3.6      # cuánto color toma el vidrio según su espesor (más = más intenso)
+DENSIDAD_COLOR = 3.0      # cuánto color toma el vidrio según su espesor (más = más intenso)
 GROSOR = 0.36             # radio del punto (lo usa el material del punto)
 FONT_PATH = "fuentes/Nunito-Black.ttf"  # Google Fonts, licencia OFL; al lado del script
 ESPESOR = 0.56            # espesor total de la placa (los signos son planos, extruidos)
@@ -210,8 +211,8 @@ def material_esmerilado(nombre, color_arriba, color_abajo, z_min, z_max):
     rampa = nt.nodes.new("ShaderNodeValToRGB")
     els = rampa.color_ramp.elements
     # degradé marcado: la mitad de abajo se desvanece casi a blanco translúcido
-    els[0].position, els[0].color = 0.12, hex_a_lineal(color_abajo)
-    els[1].position, els[1].color = 0.85, hex_a_lineal(color_arriba)
+    els[0].position, els[0].color = 0.32, hex_a_lineal(color_abajo)
+    els[1].position, els[1].color = 0.95, hex_a_lineal(color_arriba)
     rampa.color_ramp.interpolation = "EASE"
     nt.links.new(coord.outputs["Object"], sep.inputs["Vector"])
     nt.links.new(sep.outputs["Z"], alto.inputs["Value"])
@@ -220,7 +221,7 @@ def material_esmerilado(nombre, color_arriba, color_abajo, z_min, z_max):
     #    más claro en los bordes finos. La superficie queda en un tono pastel.
     pastel = nt.nodes.new("ShaderNodeMix")
     pastel.data_type = "RGBA"
-    pastel.inputs["Factor"].default_value = 0.32
+    pastel.inputs["Factor"].default_value = 0.5
     nt.links.new(rampa.outputs["Color"], next(i for i in pastel.inputs if i.identifier == "A_Color"))
     next(i for i in pastel.inputs if i.identifier == "B_Color").default_value = (1, 1, 1, 1)
     nt.links.new(next(o for o in pastel.outputs if o.identifier == "Result_Color"),
@@ -242,7 +243,7 @@ def material_esmerilado(nombre, color_arriba, color_abajo, z_min, z_max):
     costado = nt.nodes.new("ShaderNodeLayerWeight")
     costado.inputs["Blend"].default_value = 0.45
     segun_angulo = nt.nodes.new("ShaderNodeMapRange")
-    segun_angulo.inputs["To Min"].default_value = 0.45  # de frente menos esmerilado: se ve a través
+    segun_angulo.inputs["To Min"].default_value = 0.75  # esmerilado parejo, como la referencia
     segun_angulo.inputs["To Max"].default_value = 1.15
     nt.links.new(costado.outputs["Facing"], segun_angulo.inputs["Value"])
     rugosidad = nt.nodes.new("ShaderNodeMath")
@@ -367,7 +368,7 @@ def configurar_vineta(escena):
     difuminar.use_relative = True
     difuminar.factor_x = difuminar.factor_y = 40
     rango = nt.nodes.new("CompositorNodeMapRange")
-    rango.inputs["To Min"].default_value = 0.72   # cuánto se oscurecen las esquinas
+    rango.inputs["To Min"].default_value = 0.86   # cuánto se oscurecen las esquinas
     rango.inputs["To Max"].default_value = 1.0
     multiplicar = nt.nodes.new("CompositorNodeMixRGB")
     multiplicar.blend_type = "MULTIPLY"
@@ -396,7 +397,7 @@ def main():
         escena.collection.objects.link(grupo)
         mat = material_esmerilado("Vidrio " + armar.__name__, colores[0], colores[1], 0.0, ALTO)
         # el punto lleva su propio degradé corto, con el color del signo: no queda gris
-        medio = mezclar_hex(colores[0], colores[1], 0.45)
+        medio = mezclar_hex(colores[0], colores[1], 0.7)  # punto esmerilado, apenas teñido
         mat_punto = material_esmerilado("Vidrio punto " + armar.__name__, medio, colores[1],
                                         0.0, 2 * GROSOR)
         for ob in armar():
@@ -447,7 +448,7 @@ def main():
     # todo se ubica sobre la línea cámara → signos, para que quede justo detrás de ellos
     hacia = (centro - cam.location).normalized()
     detras = lambda y: cam.location + hacia * ((y - cam.location.y) / hacia.y)
-    contra = luz("Contraluz", 75, detras(3.4) + Vector((0, 0, 0.9)), 10, 8, (1.0, 0.97, 0.98),
+    contra = luz("Contraluz", 32, detras(3.4) + Vector((0, 0, 0.9)), 10, 8, (1.0, 0.97, 0.98),
                  mira=cam.location, abertura=50, en_reflejos=False)
     luz("Softbox", 200, (-4, -6, 6), 6, 6)
     luz("Relleno", 30, (6, -5, 3), 4, 4, (0.92, 0.95, 1.0))
@@ -457,7 +458,7 @@ def main():
     halo_en = detras(PARED_Y)
     # apunta a la base de la curva: ilumina parejo el final del piso y el arranque de la pared
     curva_en = detras(PARED_Y - 4.5)
-    luz("Halo pared", 300, curva_en + Vector((0, -2.0, 4.0)), 9, 7, (1.0, 0.98, 1.0),
+    luz("Halo pared", 160, curva_en + Vector((0, -2.0, 4.0)), 9, 7, (1.0, 0.98, 1.0),
         mira=curva_en + Vector((0, 0, 0.6)))
 
     # luz de color que el vidrio proyecta en el piso. Las cáusticas reales no se forman con el

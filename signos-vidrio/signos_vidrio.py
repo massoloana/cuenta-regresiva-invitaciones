@@ -35,6 +35,7 @@ DENSIDAD_COLOR = 3.6      # cuánto color toma el vidrio según su espesor (más
 GROSOR = 0.36             # radio del punto (lo usa el material del punto)
 FONT_PATH = "fuentes/Nunito-Black.ttf"  # Google Fonts, licencia OFL; al lado del script
 ESPESOR = 0.42            # espesor total de la placa (los signos son planos, extruidos)
+PARED_Y = 9.5             # a qué distancia queda la pared del fondo
 ANGULO_CAMARA = 28        # grados de costado desde el frente (0 = de frente)
 SEPARACION_PUNTO = 0.18   # aire extra entre el cuerpo y el punto
 REDONDEO = 0.16           # radio del redondeo de los cantos: casi una almohadita
@@ -275,7 +276,8 @@ def material_esmerilado(nombre, color_arriba, color_abajo, z_min, z_max):
 
 # ---------- Estudio: piso celeste que refleja y sube en curva hasta la pared ----------
 def crear_estudio():
-    piso_z, pared_y, radio, ancho = 0.0, 7.0, 4.0, 60.0
+    # curva amplia entre piso y pared: el pase es suave, sin una línea marcada
+    piso_z, pared_y, radio, ancho = 0.0, PARED_Y, 7.5, 60.0
     perfil = [(y, piso_z) for y in (-20.0, -5.0, pared_y - radio)]
     for i in range(1, 32):
         a = i / 32 * math.pi / 2
@@ -375,6 +377,7 @@ def main():
 
     # signos: el "?" atrás a la izquierda, el "!" adelante a la derecha, apenas encimados
     piezas = []
+    manchas = []  # dónde y de qué color proyecta luz cada signo en el piso
     # el "!" adelante y un poco más chico, cruzado delante del gancho del "?" (no del tallo):
     # así se ve el violeta a través del rosa y los dos pesan parejo
     for armar, colores, pos, giro, escala in (
@@ -393,6 +396,7 @@ def main():
             ob.parent = grupo
             piezas.append(ob)
         grupo.location = pos
+        manchas.append((Vector(pos), colores[0]))
         grupo.rotation_euler = (0, 0, math.radians(giro))
         grupo.scale = (escala, escala, escala)
     crear_estudio()
@@ -442,15 +446,38 @@ def main():
     # el piso adelante, para que no quede gris oscuro contra la pared clara
     luz("Piso", 260, (0, -4, 7), 10, 6, (0.95, 0.97, 1.0), mira=(0, 1.5, 0), en_reflejos=False)
     # halo en la pared detrás de los signos (en vez de bañarla entera): los despega del fondo
-    halo_en = detras(7.0)
-    luz("Halo pared", 420, halo_en + Vector((0, -4.0, 0.6)), 6, 6, (1.0, 0.98, 1.0),
-        mira=halo_en + Vector((0, 0, 0.8)))
+    halo_en = detras(PARED_Y)
+    # apunta a la base de la curva: ilumina parejo el final del piso y el arranque de la pared
+    curva_en = detras(PARED_Y - 4.5)
+    luz("Halo pared", 300, curva_en + Vector((0, -2.0, 4.0)), 9, 7, (1.0, 0.98, 1.0),
+        mira=curva_en + Vector((0, 0, 0.6)))
 
-    # cáusticas: el vidrio proyecta luz de color sobre el piso (más lento de renderizar)
-    contra.data.cycles.is_caustics_light = True
-    for ob in piezas:
-        ob.cycles.is_caustics_caster = True
-    bpy.data.objects["Estudio"].cycles.is_caustics_receiver = True
+    # luz de color que el vidrio proyecta en el piso. Las cáusticas reales no se forman con el
+    # vidrio esmerilado (dispersa demasiado), así que se arma con un spot de color por signo,
+    # delante y apenas corrido, que ilumina sólo el piso (light linking)
+    piso = bpy.data.objects["Estudio"]
+    solo_piso = bpy.data.collections.new("Solo piso")
+    solo_piso.objects.link(piso)
+    for pos, color in manchas:
+        datos = bpy.data.lights.new("Mancha", "SPOT")
+        datos.energy = 900
+        datos.color = hex_a_lineal(color)[:3]
+        datos.spot_size = math.radians(38)
+        datos.spot_blend = 1.0
+        datos.shadow_soft_size = 0.8
+        datos.use_shadow = False
+        spot = bpy.data.objects.new("Mancha", datos)
+        escena.collection.objects.link(spot)
+        hacia_camara = (cam.location - pos).normalized()
+        hacia_camara.z = 0
+        destino = pos + hacia_camara.normalized() * 0.9
+        spot.location = destino + Vector((0, 0, 2.2))
+        spot.rotation_euler = (destino - spot.location).to_track_quat("-Z", "Y").to_euler()
+        spot.visible_camera = False
+        try:
+            spot.light_linking.receiver_collection = solo_piso
+        except AttributeError:
+            pass  # Blender sin light linking: la mancha también tiñe apenas los signos
 
     configurar_mundo()
     configurar_render()

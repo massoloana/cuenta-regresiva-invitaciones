@@ -30,11 +30,12 @@ COLOR_FONDO = "#B4D2F2"   # celeste de la cinta de vidrio
 COLOR_FONDO_LUZ = "#EAF2FC"
 
 ESMERILADO = 0.55         # 0 = vidrio transparente, 0.6 = muy lechoso
-ARENADO = 0.32            # cuánto se nota el granito del arenado en la superficie
-DENSIDAD_COLOR = 2.4      # cuánto color toma el vidrio según su espesor (más = más intenso)
+ARENADO = 0.5             # cuánto se nota el granito del arenado en la superficie
+DENSIDAD_COLOR = 3.6      # cuánto color toma el vidrio según su espesor (más = más intenso)
 GROSOR = 0.36             # radio del punto (lo usa el material del punto)
 FONT_PATH = "fuentes/Nunito-Black.ttf"  # Google Fonts, licencia OFL; al lado del script
 ESPESOR = 0.42            # espesor total de la placa (los signos son planos, extruidos)
+ANGULO_CAMARA = 28        # grados de costado desde el frente (0 = de frente)
 SEPARACION_PUNTO = 0.18   # aire extra entre el cuerpo y el punto
 REDONDEO = 0.16           # radio del redondeo de los cantos: casi una almohadita
 ALTO = 3.0                # alto de los signos
@@ -210,7 +211,7 @@ def material_esmerilado(nombre, color_arriba, color_abajo, z_min, z_max):
     #    más claro en los bordes finos. La superficie queda en un tono pastel.
     pastel = nt.nodes.new("ShaderNodeMix")
     pastel.data_type = "RGBA"
-    pastel.inputs["Factor"].default_value = 0.4
+    pastel.inputs["Factor"].default_value = 0.32
     nt.links.new(rampa.outputs["Color"], next(i for i in pastel.inputs if i.identifier == "A_Color"))
     next(i for i in pastel.inputs if i.identifier == "B_Color").default_value = (1, 1, 1, 1)
     nt.links.new(next(o for o in pastel.outputs if o.identifier == "Result_Color"),
@@ -232,7 +233,7 @@ def material_esmerilado(nombre, color_arriba, color_abajo, z_min, z_max):
     costado = nt.nodes.new("ShaderNodeLayerWeight")
     costado.inputs["Blend"].default_value = 0.45
     segun_angulo = nt.nodes.new("ShaderNodeMapRange")
-    segun_angulo.inputs["To Min"].default_value = 0.3   # 1. de frente casi transparente
+    segun_angulo.inputs["To Min"].default_value = 0.45  # de frente menos esmerilado: se ve a través
     segun_angulo.inputs["To Max"].default_value = 1.15
     nt.links.new(costado.outputs["Facing"], segun_angulo.inputs["Value"])
     rugosidad = nt.nodes.new("ShaderNodeMath")
@@ -257,7 +258,7 @@ def material_esmerilado(nombre, color_arriba, color_abajo, z_min, z_max):
         borde = nt.nodes.new("ShaderNodeLayerWeight")
         borde.inputs["Blend"].default_value = 0.25
         peso = nt.nodes.new("ShaderNodeMapRange")
-        peso.inputs["To Min"].default_value, peso.inputs["To Max"].default_value = 0.0, 0.35
+        peso.inputs["To Min"].default_value, peso.inputs["To Max"].default_value = 0.0, 0.15
         nt.links.new(borde.outputs["Fresnel"], peso.inputs["Value"])
         nt.links.new(peso.outputs["Result"], coat)
     if coat_r:
@@ -351,8 +352,8 @@ def main():
     # el "!" adelante y un poco más chico, cruzado delante del gancho del "?" (no del tallo):
     # así se ve el violeta a través del rosa y los dos pesan parejo
     for armar, colores, pos, giro, escala in (
-        (pregunta, COLOR_PREGUNTA, (-0.62, 0.7, 0), -16, 0.84),
-        (exclamacion, COLOR_EXCLAMACION, (0.62, -0.4, 0), 12, 0.8),
+        (pregunta, COLOR_PREGUNTA, (-0.95, 0.55, 0), -6, 0.84),
+        (exclamacion, COLOR_EXCLAMACION, (0.75, -0.45, 0), 22, 0.8),
     ):
         grupo = bpy.data.objects.new(armar.__name__.capitalize(), None)
         escena.collection.objects.link(grupo)
@@ -380,7 +381,9 @@ def main():
     escena.collection.objects.link(cam)
     # a la altura de los signos, mirando de frente (apenas por encima del centro)
     centro = Vector((0, 0, 1.45))
-    cam.location = centro + Vector((0, -1, 0.06)).normalized() * 12.0
+    # toma principal a 28° de costado: el "!" se cruza delante del "?"
+    a = math.radians(ANGULO_CAMARA)
+    cam.location = centro + Vector((math.sin(a), -math.cos(a), 0.06)).normalized() * 12.0
     cam.rotation_euler = (centro - cam.location).to_track_quat("-Z", "Y").to_euler()
     escena.camera = cam
 

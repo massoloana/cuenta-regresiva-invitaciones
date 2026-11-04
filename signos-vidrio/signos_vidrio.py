@@ -15,10 +15,11 @@ Todo lo ajustable está en PARÁMETROS.
 """
 
 import math
+import os
 
 import bmesh
 import bpy
-from mathutils import Vector
+from mathutils import Matrix, Vector
 
 # ------------------------------------------------------------------ PARÁMETROS
 # Cada signo: color intenso arriba que se desvanece a blanco lechoso abajo
@@ -31,7 +32,11 @@ COLOR_FONDO_LUZ = "#EAF2FC"
 ESMERILADO = 0.55         # 0 = vidrio transparente, 0.6 = muy lechoso
 ARENADO = 0.32            # cuánto se nota el granito del arenado en la superficie
 DENSIDAD_COLOR = 2.4      # cuánto color toma el vidrio según su espesor (más = más intenso)
-GROSOR = 0.36             # radio del trazo de los signos
+GROSOR = 0.36             # radio del punto (lo usa el material del punto)
+FONT_PATH = "fuentes/Nunito-Black.ttf"  # Google Fonts, licencia OFL; al lado del script
+ESPESOR = 0.42            # espesor total de la placa (los signos son planos, extruidos)
+SEPARACION_PUNTO = 0.18   # aire extra entre el cuerpo y el punto
+REDONDEO = 0.16           # radio del redondeo de los cantos: casi una almohadita
 ALTO = 3.0                # alto de los signos
 
 RESOLUCION = (1080, 1080) # cuadrado, como la referencia
@@ -71,149 +76,104 @@ def entrada(nodo, *nombres):
     return None
 
 
-# ---------- Geometría: un tubo con puntas redondas, de una sola pieza ----------
-def tubo(nombre, camino, radio, segmentos=48, anillos_punta=14):
-    """Barre un círculo a lo largo de `camino` (lista de Vector) y cierra las dos puntas con
-    media esfera. `radio(t)` da el radio en cada punto (t de 0 a 1). Devuelve un objeto
-    cerrado y sin piezas superpuestas (el vidrio no muestra costuras por dentro)."""
-    n = len(camino)
-    tangentes = []
-    for i in range(n):
-        a, b = camino[max(i - 1, 0)], camino[min(i + 1, n - 1)]
-        tangentes.append((b - a).normalized())
-    # marcos por transporte paralelo: el tubo no se retuerce
-    t0 = tangentes[0]
-    ref = Vector((0, 0, 1)) if abs(t0.z) < 0.9 else Vector((1, 0, 0))
-    u = t0.cross(ref).normalized()
-    marcos = []
-    for i in range(n):
-        t = tangentes[i]
-        u = (u - t * u.dot(t)).normalized()
-        marcos.append((u, t.cross(u).normalized()))
+# ---------- Geometría: signos planos extruidos, con cantos redondeados ----------
+def buscar_fuente():
+    """Ruta absoluta a FONT_PATH: tal cual, al lado del script o al lado del .blend."""
+    candidatas = [FONT_PATH, bpy.path.abspath("//" + FONT_PATH)]
+    if "__file__" in globals():
+        candidatas.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), FONT_PATH))
+    candidatas += [os.path.join(os.path.dirname(bpy.path.abspath(t.filepath)), FONT_PATH)
+                   for t in bpy.data.texts if t.filepath]
+    for ruta in candidatas:
+        if ruta and os.path.isfile(ruta):
+            return ruta
+    print("No encontré la tipografía", FONT_PATH, "- uso la de Blender")
+    return None
+
+
+def signo_plano(caracter, nombre):
+    """El signo como placa plana extruida, con cantos muy redondeados. De pie en el plano XZ,
+    apoyado en z = 0 y con ALTO de alto. Devuelve [cuerpo, punto] (dos objetos)."""
+    curva = bpy.data.curves.new(nombre, type="FONT")
+    curva.body = caracter
+    curva.size = 4.0
+    curva.align_x = "CENTER"
+    fuente = buscar_fuente()
+    if fuente:
+        curva.font = bpy.data.fonts.load(fuente, check_existing=True)
+    curva.extrude = max(ESPESOR / 2 - REDONDEO, 0.0)
+    curva.bevel_mode = "ROUND"
+    curva.bevel_depth = REDONDEO
+    curva.bevel_resolution = 10
+    curva.offset = -REDONDEO * 0.6   # el redondeo casi no engorda el signo
+    curva.resolution_u = 24
+    ob = bpy.data.objects.new(nombre, curva)
+    bpy.context.scene.collection.objects.link(ob)
+    deps = bpy.context.evaluated_depsgraph_get()
+    me = bpy.data.meshes.new_from_object(ob.evaluated_get(deps))
+    bpy.data.objects.remove(ob, do_unlink=True)
+    bpy.data.curves.remove(curva)
 
     bm = bmesh.new()
-    anillos = []
+    bm.from_mesh(me)
+    bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=1e-5)
+    # de acostado (XY) a parado (XZ), mirando a -Y, apoyado en el piso y con el alto justo
+    bmesh.ops.rotate(bm, verts=bm.verts, cent=(0, 0, 0),
+                     matrix=Matrix.Rotation(math.pi / 2, 3, "X"))
+    zs = [v.co.z for v in bm.verts]
+    k = ALTO / (max(zs) - min(zs))
+    bmesh.ops.scale(bm, vec=(k, 1, k), verts=bm.verts)
+    xs = [v.co.x for v in bm.verts]
+    z0 = min(v.co.z for v in bm.verts)
+    bmesh.ops.translate(bm, verts=bm.verts, vec=Vector((-(min(xs) + max(xs)) / 2, 0, -z0)))
 
-    def anillo(centro, u, v, r):
-        return [bm.verts.new(centro + (u * math.cos(2 * math.pi * k / segmentos) +
-                                       v * math.sin(2 * math.pi * k / segmentos)) * r)
-                for k in range(segmentos)]
-
-    # punta inicial (media esfera hacia atrás)
-    r0 = radio(0.0)
-    u0, v0 = marcos[0]
-    polo_ini = bm.verts.new(camino[0] - tangentes[0] * r0)
-    for k in range(1, anillos_punta):
-        fi = math.pi / 2 * k / anillos_punta
-        anillos.append(anillo(camino[0] - tangentes[0] * r0 * math.cos(fi), u0, v0, r0 * math.sin(fi)))
-    for i in range(n):
-        u, v = marcos[i]
-        anillos.append(anillo(camino[i], u, v, radio(i / (n - 1))))
-    r1 = radio(1.0)
-    u1, v1 = marcos[-1]
-    for k in range(anillos_punta - 1, 0, -1):
-        fi = math.pi / 2 * k / anillos_punta
-        anillos.append(anillo(camino[-1] + tangentes[-1] * r1 * math.cos(fi), u1, v1, r1 * math.sin(fi)))
-    polo_fin = bm.verts.new(camino[-1] + tangentes[-1] * r1)
-
-    for a, b in zip(anillos, anillos[1:]):
-        for k in range(segmentos):
-            bm.faces.new((a[k], a[(k + 1) % segmentos], b[(k + 1) % segmentos], b[k]))
-    for k in range(segmentos):
-        bm.faces.new((polo_ini, anillos[0][(k + 1) % segmentos], anillos[0][k]))
-        bm.faces.new((polo_fin, anillos[-1][k], anillos[-1][(k + 1) % segmentos]))
-    bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
-    me = bpy.data.meshes.new(nombre)
-    bm.to_mesh(me)
+    # se separa el punto (la isla más baja) del cuerpo, para darle su propio color
+    islas, vistos = [], set()
+    for v in bm.verts:
+        if v in vistos:
+            continue
+        pila, isla = [v], set()
+        vistos.add(v)
+        while pila:
+            w = pila.pop()
+            isla.add(w)
+            for e in w.link_edges:
+                o = e.other_vert(w)
+                if o not in vistos:
+                    vistos.add(o)
+                    pila.append(o)
+        islas.append(isla)
+    punto = min(islas, key=lambda isla: max(v.co.z for v in isla))
+    bm.verts.index_update()
+    en_punto = {v.index for v in punto}
+    objetos = []
+    for parte, quedarse in (("cuerpo", False), ("punto", True)):
+        b2 = bm.copy()
+        b2.verts.ensure_lookup_table()
+        bmesh.ops.delete(b2, geom=[f for f in b2.faces
+                                   if (f.verts[0].index in en_punto) != quedarse],
+                         context="FACES")
+        m2 = bpy.data.meshes.new(f"{nombre} {parte}")
+        b2.to_mesh(m2)
+        b2.free()
+        for p in m2.polygons:
+            p.use_smooth = True
+        o = bpy.data.objects.new(f"{nombre} {parte}", m2)
+        bpy.context.scene.collection.objects.link(o)
+        if parte == "cuerpo":  # más aire entre el cuerpo y el punto
+            o.data.transform(Matrix.Translation((0, 0, SEPARACION_PUNTO)))
+        objetos.append(o)
     bm.free()
-    for p in me.polygons:
-        p.use_smooth = True
-    ob = bpy.data.objects.new(nombre, me)
-    bpy.context.scene.collection.objects.link(ob)
-    return ob
-
-
-def esfera(nombre, centro, radio):
-    bm = bmesh.new()
-    bmesh.ops.create_uvsphere(bm, u_segments=64, v_segments=32, radius=radio)
-    # la malla ya queda en su lugar (origen en el piso): el degradé mide la altura real
-    bmesh.ops.translate(bm, verts=bm.verts, vec=Vector(centro))
-    me = bpy.data.meshes.new(nombre)
-    bm.to_mesh(me)
-    bm.free()
-    for p in me.polygons:
-        p.use_smooth = True
-    ob = bpy.data.objects.new(nombre, me)
-    bpy.context.scene.collection.objects.link(ob)
-    return ob
+    bpy.data.meshes.remove(me)
+    return objetos
 
 
 def exclamacion():
-    """Palo que se afina hacia abajo + punto. En el plano XZ, apoyado en z = 0."""
-    r = GROSOR
-    punto = esfera("Exclamacion punto", (0, 0, r), r)
-    abajo, arriba = 2 * r + 0.45 + r * 0.8, ALTO - r * 1.15
-    camino = [Vector((0, 0, arriba + (abajo - arriba) * i / 60)) for i in range(61)]
-    suave = lambda t: t * t * (3 - 2 * t)  # sin pendiente en las puntas: no marca un aro
-    palo = tubo("Exclamacion palo", camino, lambda t: r * (1.15 - 0.35 * suave(t)))
-    return [palo, punto]
+    return signo_plano("!", "Exclamacion")
 
 
 def pregunta():
-    """Gancho que baja a un tallo corto + punto. En el plano XZ, apoyado en z = 0.
-
-    Se dibuja con arcos y rectas, nunca más cerrado que el grosor del trazo: así el tubo
-    no se pliega sobre sí mismo en las curvas (eso dejaba marcas oscuras en el vidrio).
-    """
-    r = GROSOR * 0.86  # el trazo del "?" un poco más fino: el gancho respira
-    punto = esfera("Pregunta punto", (0, 0, GROSOR), GROSOR)
-    e = ALTO / 3.0
-    r_gancho, r_codo = 0.6 * e, max(0.42 * e, r * 1.4)
-    giro_fin = math.radians(-40)      # dónde termina el arco del gancho
-    rumbo = giro_fin - math.pi / 2    # hacia dónde sale (abajo a la izquierda)
-
-    def trazar(recta):
-        pts = []
-        for i in range(121):  # gancho: arco de 160° a -40°, en sentido horario
-            a = math.radians(160) + (giro_fin - math.radians(160)) * i / 120
-            pts.append(Vector((r_gancho * math.cos(a), 0, r_gancho * math.sin(a))))
-        p = pts[-1].copy()
-        d = Vector((math.cos(rumbo), 0, math.sin(rumbo)))
-        for i in range(1, 21):  # recta en diagonal
-            pts.append(p + d * recta * i / 20)
-        p = pts[-1].copy()
-        izq = Vector((math.cos(rumbo + math.pi / 2), 0, math.sin(rumbo + math.pi / 2)))
-        centro = p + izq * r_codo
-        for i in range(1, 31):  # codo suave hasta quedar vertical
-            fi = rumbo - math.pi / 2 + (math.radians(40)) * i / 30
-            pts.append(centro + Vector((math.cos(fi), 0, math.sin(fi))) * r_codo)
-        p = pts[-1].copy()
-        for i in range(1, 16):  # tallo corto
-            pts.append(p + Vector((0, 0, -0.28 * e)) * i / 15)
-        return pts
-
-    # largo de la recta para que el tallo caiga justo sobre el punto (x = 0)
-    lo, hi = 0.0, 2.0
-    for _ in range(40):
-        mid = (lo + hi) / 2
-        if trazar(mid)[-1].x > 0.02:
-            lo = mid
-        else:
-            hi = mid
-    camino = trazar((lo + hi) / 2)
-    # se sube todo para dejar el aire de siempre entre el tallo y el punto
-    alto_tallo = 2 * GROSOR + 0.42 + r * 0.6
-    dz = alto_tallo - camino[-1].z
-    camino = [p + Vector((0, 0, dz)) for p in camino]
-    # que entre en el alto de siempre: se escala desde el pie del tallo
-    tope = max(p.z for p in camino) + r
-    if tope > ALTO:
-        k = (ALTO - r - alto_tallo) / (tope - r - alto_tallo)
-        pie = camino[-1]
-        camino = [Vector((pie.x + (p.x - pie.x) * k, 0, pie.z + (p.z - pie.z) * k)) for p in camino]
-    gancho = tubo("Pregunta gancho", camino,
-                  lambda t: r * (1.05 - 0.15 * t * t * (3 - 2 * t)))
-    return [gancho, punto]
+    return signo_plano("?", "Pregunta")
 
 
 # ---------- Material: vidrio esmerilado grueso con degradé vertical ----------
@@ -391,8 +351,8 @@ def main():
     # el "!" adelante y un poco más chico, cruzado delante del gancho del "?" (no del tallo):
     # así se ve el violeta a través del rosa y los dos pesan parejo
     for armar, colores, pos, giro, escala in (
-        (pregunta, COLOR_PREGUNTA, (-0.42, 0.75, 0), -16, 1.06),
-        (exclamacion, COLOR_EXCLAMACION, (0.46, -0.45, 0), 12, 0.92),
+        (pregunta, COLOR_PREGUNTA, (-0.62, 0.7, 0), -16, 0.84),
+        (exclamacion, COLOR_EXCLAMACION, (0.62, -0.4, 0), 12, 0.8),
     ):
         grupo = bpy.data.objects.new(armar.__name__.capitalize(), None)
         escena.collection.objects.link(grupo)
@@ -403,9 +363,6 @@ def main():
                                         0.0, 2 * GROSOR)
         for ob in armar():
             ob.data.materials.append(mat_punto if "punto" in ob.name else mat)
-            # malla suavizada: sin pliegues en las curvas
-            sub = ob.modifiers.new("Suave", "SUBSURF")
-            sub.levels, sub.render_levels = 1, 1
             ob.parent = grupo
             piezas.append(ob)
         grupo.location = pos

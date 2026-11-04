@@ -34,7 +34,9 @@ ARENADO = 0.5             # cuánto se nota el granito del arenado en la superfi
 DENSIDAD_COLOR = 3.6      # cuánto color toma el vidrio según su espesor (más = más intenso)
 GROSOR = 0.36             # radio del punto (lo usa el material del punto)
 FONT_PATH = "fuentes/Nunito-Black.ttf"  # Google Fonts, licencia OFL; al lado del script
-ESPESOR = 0.42            # espesor total de la placa (los signos son planos, extruidos)
+ESPESOR = 0.56            # espesor total de la placa (los signos son planos, extruidos)
+ENGORDE = 0.07            # cuánto se engorda el trazo de la tipografía (más = signos más gordos)
+TAMANO_PUNTO = 0.72       # el punto, más chico que el de la tipografía (1 = igual)
 PARED_Y = 9.5             # a qué distancia queda la pared del fondo
 ANGULO_CAMARA = 28        # grados de costado desde el frente (0 = de frente)
 SEPARACION_PUNTO = 0.18   # aire extra entre el cuerpo y el punto
@@ -107,7 +109,7 @@ def signo_plano(caracter, nombre):
     curva.bevel_mode = "ROUND"
     curva.bevel_depth = REDONDEO
     curva.bevel_resolution = 10
-    curva.offset = -REDONDEO * 0.6   # el redondeo casi no engorda el signo
+    curva.offset = ENGORDE - REDONDEO * 0.6   # trazo más gordo; el redondeo no suma más
     curva.resolution_u = 24
     ob = bpy.data.objects.new(nombre, curva)
     bpy.context.scene.collection.objects.link(ob)
@@ -164,6 +166,12 @@ def signo_plano(caracter, nombre):
         bpy.context.scene.collection.objects.link(o)
         if parte == "cuerpo":  # más aire entre el cuerpo y el punto
             o.data.transform(Matrix.Translation((0, 0, SEPARACION_PUNTO)))
+        else:  # punto más chico, achicado sobre su centro y apoyado en el piso
+            vs = o.data.vertices
+            c = sum((v.co for v in vs), Vector()) / len(vs)
+            o.data.transform(Matrix.Translation(c) @ Matrix.Scale(TAMANO_PUNTO, 4) @
+                             Matrix.Translation(-c))
+            o.data.transform(Matrix.Translation((0, 0, -min(v.co.z for v in vs))))
         objetos.append(o)
     bm.free()
     bpy.data.meshes.remove(me)
@@ -382,7 +390,7 @@ def main():
     # así se ve el violeta a través del rosa y los dos pesan parejo
     for armar, colores, pos, giro, escala in (
         (pregunta, COLOR_PREGUNTA, (-0.95, 0.55, 0), -6, 0.84),
-        (exclamacion, COLOR_EXCLAMACION, (0.75, -0.45, 0), 22, 0.8),
+        (exclamacion, COLOR_EXCLAMACION, (0.95, -0.45, 0), 22, 0.8),
     ):
         grupo = bpy.data.objects.new(armar.__name__.capitalize(), None)
         escena.collection.objects.link(grupo)

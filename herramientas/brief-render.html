@@ -87,6 +87,22 @@ h2 { margin: 0; font-family: var(--display); font-stretch: 112%; font-weight: 70
 .dots { display: flex; gap: 4px; }
 .dots span { width: 14px; height: 14px; border-radius: 50%; border: 1px solid color-mix(in srgb, var(--fg) 25%, transparent); }
 .badge { font-family: var(--mono); font-size: 11px; color: var(--key); }
+.mine { display: flex; min-width: 0; }
+.mine .opt { flex: 1; border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.del {
+  appearance: none; font: inherit; font-size: 12px; cursor: pointer; padding: 0 10px;
+  background: transparent; color: var(--muted); border: 1px solid var(--line); border-left: 0; border-radius: 0 8px 8px 0;
+}
+.del:hover { color: var(--fg); }
+.del.confirm { background: var(--key); border-color: var(--key); color: var(--on-key); font-weight: 600; }
+.del:focus-visible { outline: 2px solid var(--fill); outline-offset: 2px; }
+.empty { margin: 0; color: var(--muted); font-size: 13px; max-width: 65ch; }
+.save-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.save-row input { flex: 1 1 200px; width: auto; min-width: 0; }
+details.io { display: grid; gap: 8px; }
+details.io[open] { display: grid; }
+details.io summary { cursor: pointer; color: var(--fill); font-size: 14px; }
+details.io > * + * { margin-top: 8px; }
 
 textarea, input[type="text"], select {
   width: 100%; font: inherit; color: var(--fg); background: var(--bg);
@@ -155,6 +171,24 @@ pre#prompt {
     <section class="blk">
       <div class="blk-head"><h2>Receta</h2><small id="look-state"></small></div>
       <div class="looks" id="g-look"></div>
+      <div class="row">
+        <span class="lbl">Mis recetas</span>
+        <div class="looks" id="g-mias"></div>
+        <p class="empty" id="mias-empty">Todavía no guardaste ninguna. Ajustá todo a tu gusto, ponele un nombre y guardala.</p>
+        <div class="save-row">
+          <input type="text" id="receta-nombre" maxlength="40" placeholder="Nombre, ej.: Quince azul noche">
+          <button class="btn" id="receta-guardar" type="button">Guardar receta actual</button>
+        </div>
+        <details class="io">
+          <summary>Pasar mis recetas a otro dispositivo</summary>
+          <p class="empty">Las recetas quedan guardadas solo en este navegador. Para llevarlas a la PC: tocá «Copiar mis recetas», pegá el texto en el otro dispositivo, dentro de este mismo cuadro, y tocá «Importar».</p>
+          <textarea id="recetas-io" rows="3" placeholder="Pegá acá el texto de tus recetas"></textarea>
+          <div class="save-row">
+            <button class="btn" id="recetas-exportar" type="button">Copiar mis recetas</button>
+            <button class="btn" id="recetas-importar" type="button">Importar</button>
+          </div>
+        </details>
+      </div>
       <div class="row">
         <label for="intent">Intención visual</label>
         <textarea id="intent" rows="2"></textarea>
@@ -437,6 +471,37 @@ try {
 } catch { fresh(); }
 
 function save() { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch {} }
+
+// Recetas propias: guardan todo menos sujeto y notas, que cambian en cada proyecto.
+const RKEY = "brief-render-recetas-v1";
+let mias = [], pendingDel = null, delTimer;
+try { mias = JSON.parse(localStorage.getItem(RKEY) || "[]"); if (!Array.isArray(mias)) mias = []; } catch { mias = []; }
+function saveMias() { try { localStorage.setItem(RKEY, JSON.stringify(mias)); } catch {} }
+const esc = t => String(t).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+function clean(d) {
+  const o = {};
+  for (const k of Object.keys(OPTS)) {
+    if (MULTI.includes(k)) { if (Array.isArray(d[k])) o[k] = d[k].filter(id => OPTS[k].some(x => x.id === id)); }
+    else if (OPTS[k].some(x => x.id === d[k])) o[k] = d[k];
+  }
+  if (Array.isArray(d.colors) && d.colors.length === 3 && d.colors.every(c => /^#[0-9a-f]{6}$/i.test(c))) o.colors = [...d.colors];
+  if (typeof d.intent === "string") o.intent = d.intent.slice(0, 800);
+  if (["3", "5", "6", "8", "10"].includes(String(d.duracion))) o.duracion = String(d.duracion);
+  if (["24", "30", "60"].includes(String(d.fps))) o.fps = String(d.fps);
+  if (typeof d.paleta === "string") o.paleta = d.paleta;
+  return o;
+}
+function applyMia(id) {
+  const r = mias.find(x => x.id === id); if (!r) return;
+  Object.assign(state, clean(r.data));
+  state.look = id; state.lookEdited = false;
+}
+function lookName() {
+  const l = LOOKS.find(x => x.id === state.look) || mias.find(x => x.id === state.look);
+  if (!l) return null;
+  const name = l.label || l.name;
+  return state.lookEdited ? `${name} · ajustada` : name;
+}
 const find = (k, id) => OPTS[k].find(o => o.id === id);
 const $ = id => document.getElementById(id);
 
@@ -479,8 +544,32 @@ function renderLooks() {
       state.paleta = id; state.colors = [...p.c]; update();
     }, "look"));
   }
-  const l = LOOKS.find(x => x.id === state.look);
-  $("look-state").textContent = l ? (state.lookEdited ? `${l.label} · ajustada` : l.label) : "personalizada";
+  const me = $("g-mias"); me.replaceChildren();
+  $("mias-empty").hidden = mias.length > 0;
+  for (const r of mias) {
+    const w = document.createElement("div"); w.className = "mine";
+    const cols = clean(r.data).colors || [];
+    const dots = cols.map(c => `<span style="background:${c}"></span>`).join("");
+    w.append(optButton(`mia-${r.id}`, `<b>${esc(r.name)}</b><span class="dots">${dots}</span>`, state.look === r.id, () => { applyMia(r.id); update(); }, "look"));
+    const del = document.createElement("button");
+    del.type = "button"; del.id = `del-${r.id}`; del.className = "del";
+    del.setAttribute("aria-label", `Borrar la receta ${r.name}`);
+    del.textContent = pendingDel === r.id ? "¿Borrar?" : "×";
+    if (pendingDel === r.id) del.classList.add("confirm");
+    del.addEventListener("click", () => {
+      clearTimeout(delTimer);
+      if (pendingDel === r.id) {
+        mias = mias.filter(x => x.id !== r.id); pendingDel = null;
+        if (state.look === r.id) state.look = null;
+        saveMias(); update(); toast("Receta borrada");
+      } else {
+        pendingDel = r.id; update();
+        delTimer = setTimeout(() => { pendingDel = null; update(); }, 3000);
+      }
+    });
+    w.append(del); me.append(w);
+  }
+  $("look-state").textContent = lookName() || "personalizada";
 }
 
 function buildPrompt() {
@@ -545,8 +634,7 @@ function update() {
   const p = buildPrompt();
   $("prompt").textContent = p;
   $("count").textContent = `${p.split(/\s+/).length} palabras`;
-  const l = LOOKS.find(x => x.id === s.look);
-  $("bar-sum").textContent = `${l ? l.label : "Personalizada"} · ${find("entrega", s.entrega).label}`;
+  $("bar-sum").textContent = `${lookName() || "Personalizada"} · ${find("entrega", s.entrega).label}`;
   save();
 }
 
@@ -559,6 +647,41 @@ $("fps").addEventListener("change", e => { state.fps = e.target.value; update();
   state.colors[i] = e.target.value; state.paleta = "custom"; update();
 }));
 $("reset").addEventListener("click", () => { fresh(); update(); toast("Volviste a la receta inicial"); });
+
+$("receta-guardar").addEventListener("click", () => {
+  const name = $("receta-nombre").value.trim();
+  if (!name) { toast("Escribí un nombre para la receta"); $("receta-nombre").focus(); return; }
+  const existing = mias.find(x => x.name.toLowerCase() === name.toLowerCase());
+  if (existing) { existing.data = clean(state); state.look = existing.id; }
+  else { const id = "u-" + Date.now().toString(36); mias.push({ id, name, data: clean(state) }); state.look = id; }
+  state.lookEdited = false; $("receta-nombre").value = "";
+  saveMias(); update();
+  toast(existing ? `«${name}» actualizada` : `«${name}» guardada`);
+});
+$("recetas-exportar").addEventListener("click", async () => {
+  if (!mias.length) { toast("Todavía no hay recetas guardadas"); return; }
+  const io = $("recetas-io");
+  io.value = JSON.stringify(mias.map(r => ({ name: r.name, data: r.data })));
+  try { await navigator.clipboard.writeText(io.value); toast("Recetas copiadas"); }
+  catch { io.focus(); io.select(); toast("Texto seleccionado: copialo desde el menú"); }
+});
+$("recetas-importar").addEventListener("click", () => {
+  let list;
+  try { list = JSON.parse($("recetas-io").value); } catch { list = null; }
+  if (!Array.isArray(list)) { toast("Ese texto no es una lista de recetas. Copialo de nuevo desde el otro dispositivo."); return; }
+  let n = 0;
+  for (const item of list) {
+    if (!item || typeof item.name !== "string" || !item.name.trim() || typeof item.data !== "object") continue;
+    const name = item.name.trim().slice(0, 40), data = clean(item.data);
+    const existing = mias.find(x => x.name.toLowerCase() === name.toLowerCase());
+    if (existing) existing.data = data;
+    else mias.push({ id: "u-" + Date.now().toString(36) + n, name, data });
+    n++;
+  }
+  if (!n) { toast("No encontré recetas válidas en ese texto"); return; }
+  $("recetas-io").value = ""; saveMias(); update();
+  toast(n === 1 ? "1 receta importada" : `${n} recetas importadas`);
+});
 
 let tt;
 function toast(msg) { const t = $("toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(tt); tt = setTimeout(() => t.classList.remove("show"), 1800); }

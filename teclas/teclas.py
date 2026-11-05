@@ -42,6 +42,14 @@ ALTO = 0.5           # alto de la tecla
 
 RESOLUCION = (1080, 1080)
 MUESTRAS = 192
+
+# Teclas paradas de frente y animación de apretado
+GIRO_CAMARA = 24          # grados que la cámara mira desde la derecha (como la referencia)
+COLOR_PARED = "#CFCFCF"   # pared del fondo, con una luz que se nota
+FPS = 30
+DURACION = 4              # segundos del loop
+RECORRIDO = 0.22          # cuánto se hunde una tecla al apretarla (≈ 4 mm, como una tecla real)
+ORDEN_APRETADO = ["W", "A", "S", "D", "Q", "E"]       # en qué orden se aprietan
 # -----------------------------------------------------------------------------
 
 
@@ -324,6 +332,40 @@ def configurar_render():
     escena.render.filepath = "//teclas"
 
 
+def crear_pared():
+    """Pared del fondo, lejos de las teclas: con una luz que la recorre, no un blanco infinito."""
+    bm = bmesh.new()
+    bmesh.ops.create_grid(bm, x_segments=1, y_segments=1, size=30)
+    me = bpy.data.meshes.new("Pared")
+    bm.to_mesh(me)
+    bm.free()
+    ob = bpy.data.objects.new("Pared", me)
+    bpy.context.scene.collection.objects.link(ob)
+    ob.location = (0, 7, 0)
+    ob.rotation_euler = (math.pi / 2, 0, 0)
+    mat = bpy.data.materials.new("Pared gris")
+    mat.use_nodes = True
+    bsdf = mat.node_tree.nodes.get("Principled BSDF")
+    bsdf.inputs["Base Color"].default_value = hex_a_lineal(COLOR_PARED)
+    bsdf.inputs["Roughness"].default_value = 0.95
+    me.materials.append(mat)
+    return ob
+
+
+def apretado(t):
+    """Recorrido de una tecla (0 = arriba, 1 = a fondo) en el tiempo t de su pulsación (0-1):
+    baja rápido, se queda un instante y vuelve con un rebote chiquito."""
+    if t <= 0 or t >= 1:
+        return 0.0
+    if t < 0.18:                       # baja
+        k = t / 0.18
+        return k * k * (3 - 2 * k)
+    if t < 0.38:                       # queda abajo
+        return 1.0
+    k = (t - 0.38) / 0.62              # sube y rebota apenas
+    return (1 - k) ** 2 * math.cos(k * math.pi * 1.5) if k < 1 else 0.0
+
+
 def main():
     limpiar_escena()
     escena = bpy.context.scene
@@ -334,36 +376,54 @@ def main():
     tinta_oscura = tinta("Letra oscura", COLOR_LETRA_OSCURA)
     tinta_clara = tinta("Letra clara", COLOR_LETRA_CLARA)
 
+    # las teclas se arman acostadas y después se paran todas juntas, de frente a la cámara
+    teclado = bpy.data.objects.new("Teclado", None)
+    escena.collection.objects.link(teclado)
+    grupos = {}
     paso = TECLA + SEPARACION
     columnas = len(FILAS[0])
     for f, fila in enumerate(FILAS):
         for c, caracter in enumerate(fila):
             x = (c - (columnas - 1) / 2) * paso
             y = ((len(FILAS) - 1) / 2 - f) * paso
+            grupo = bpy.data.objects.new("Pulsador " + caracter, None)
+            escena.collection.objects.link(grupo)
+            grupo.location = (x, y, 0)
+            grupo.parent = teclado
+            grupos[caracter] = grupo
+            partes = []
             t = tecla("Tecla " + caracter)
-            t.location = (x, y, 0)
+            partes.append(t)
             if caracter == TRANSPARENTE:
                 t.data.materials.append(azul_transp)
                 if VASTAGO:
-                    vastago(x, y, azul_transp)  # se ve a través: el vástago en cruz
+                    partes.append(vastago(0, 0, azul_transp))
             else:
                 t.data.materials.append(azul if caracter in AZULES else blanco)
             le = letra(caracter, "Letra " + caracter)
-            le.location = (x, y, ALTO * 0.975 + 0.004)
+            le.location = (0, 0, ALTO * 0.975 + 0.004)
             le.data.materials.append(tinta_clara if caracter in AZULES else tinta_oscura)
-    crear_piso()
+            partes.append(le)
+            for p in partes:
+                p.location = (0, 0, p.location.z)
+                p.parent = grupo
+    # parado: la cara de las letras mira a la cámara (-Y), la fila Q W E arriba
+    teclado.rotation_euler = (math.pi / 2, 0, 0)
+    teclado.location = (0, ALTO / 2, 0)
+    crear_pared()
 
-    # cámara casi cenital, lente larga: como la foto de referencia
+    # cámara de frente, apenas desde la derecha y arriba, como la referencia
     cam_data = bpy.data.cameras.new("Camara")
-    cam_data.lens = 150
+    cam_data.lens = 125
     cam = bpy.data.objects.new("Camara", cam_data)
     escena.collection.objects.link(cam)
-    centro = Vector((0, 0, ALTO * 0.5))
-    cam.location = centro + Vector((0, -0.16, 1)).normalized() * 19
+    centro = Vector((0, 0, 0))
+    a = math.radians(GIRO_CAMARA)
+    cam.location = centro + Vector((math.sin(a), -math.cos(a), 0.18)).normalized() * 15
     cam.rotation_euler = (centro - cam.location).to_track_quat("-Z", "Y").to_euler()
     escena.camera = cam
 
-    def luz(nombre, energia, pos, tam, color=(1, 1, 1)):
+    def luz(nombre, energia, pos, tam, color=(1, 1, 1), mira=None):
         datos = bpy.data.lights.new(nombre, "AREA")
         datos.energy = energia
         datos.color = color
@@ -371,18 +431,19 @@ def main():
         ob = bpy.data.objects.new(nombre, datos)
         escena.collection.objects.link(ob)
         ob.location = pos
-        ob.rotation_euler = (centro - Vector(pos)).to_track_quat("-Z", "Y").to_euler()
+        destino = Vector(mira) if mira else centro
+        ob.rotation_euler = (destino - Vector(pos)).to_track_quat("-Z", "Y").to_euler()
         ob.visible_camera = False
         return ob
 
-    # dos softbox: uno grande y alto, centrado (fondo parejo) y uno arriba a la izquierda
-    # que da la dirección de las sombras, como en la referencia
-    luz("Cenital", 300, (0, 0, 14), 24)
-    luz("Softbox", 520, (-3, 2.5, 8), 3.5)  # más chico: sombra más marcada abajo a la derecha
-    luz("Relleno", 90, (5, -4, 6), 6, (0.96, 0.97, 1.0))
-    # contraluz baja detrás: hace brillar la tecla transparente
-    contra = luz("Contraluz", 320, (-1.5, 5, 2), 3)
-    # sólo ilumina la tecla transparente (light linking): no aclara el fondo de atrás
+    # principal arriba a la izquierda y adelante: sombras suaves hacia abajo a la derecha
+    luz("Softbox", 520, (-5, -6, 5), 5)
+    luz("Relleno", 120, (6, -6, 0), 6, (0.96, 0.97, 1.0))
+    # luz en la pared: un círculo suave arriba a la izquierda que se apaga hacia los bordes
+    pared = luz("Luz pared", 260, (-2, 1.5, 3.5), 6, mira=(-1, 7, 2))
+    pared.data.spread = math.radians(120)
+    # contraluz detrás: hace brillar la tecla transparente (sólo a ella, con light linking)
+    contra = luz("Contraluz", 60, (-2.5, 3, 0.5), 3, mira=(-1.6, 0, -0.5))
     solo_transp = bpy.data.collections.new("Solo tecla transparente")
     solo_transp.objects.link(bpy.data.objects["Tecla " + TRANSPARENTE])
     try:
@@ -392,6 +453,30 @@ def main():
 
     configurar_mundo()
     configurar_render()
+    escena.render.fps = FPS
+    escena.frame_start, escena.frame_end = 1, FPS * DURACION
+
+    # animación: cada tecla se aprieta una vez por loop, en ORDEN_APRETADO, con superposición
+    total = FPS * DURACION
+    hueco = total / len(ORDEN_APRETADO)
+    largo = int(FPS * 0.55)  # cuánto dura una pulsación
+    prefs = bpy.context.preferences.edit
+    interp = prefs.keyframe_new_interpolation_type
+    prefs.keyframe_new_interpolation_type = "LINEAR"
+    try:
+        for i, caracter in enumerate(ORDEN_APRETADO):
+            if caracter not in grupos:
+                continue
+            g = grupos[caracter]
+            inicio = int(i * hueco + hueco * 0.15)
+            base = g.location.z
+            for fr in range(total + 1):
+                t = (fr - inicio) / largo
+                g.location.z = base - RECORRIDO * apretado(t)
+                g.keyframe_insert("location", index=2, frame=fr + 1)
+    finally:
+        prefs.keyframe_new_interpolation_type = interp
+    escena.frame_set(1)
 
 
 main()

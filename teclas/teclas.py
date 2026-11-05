@@ -25,6 +25,7 @@ from mathutils import Matrix, Vector
 FILAS = [["Q", "W", "E"], ["A", "S", "D"]]   # orden del teclado
 AZULES = {"Q", "A"}                           # teclas de plástico azul
 TRANSPARENTE = "A"                            # la tecla de azul medio transparente
+VASTAGO = False           # True = se ve la cruz del vástago adentro (de frente tapa la letra)
 
 COLOR_AZUL = "#2D5BE3"
 COLOR_BLANCO = "#E9E7E2"      # PBT blanco hueso, como la referencia
@@ -135,14 +136,14 @@ def vastago(x, y, mat):
     for nombre, (sx, sy) in (("Vastago X", (0.28, 0.08)), ("Vastago Y", (0.08, 0.28))):
         bm = bmesh.new()
         bmesh.ops.create_cube(bm, size=1.0)
-        bmesh.ops.scale(bm, vec=(sx, sy, ALTO * 0.55), verts=bm.verts)
+        bmesh.ops.scale(bm, vec=(sx, sy, ALTO * 0.4), verts=bm.verts)
         me = bpy.data.meshes.new(nombre)
         bm.to_mesh(me)
         bm.free()
         me.materials.append(mat)
         ob = bpy.data.objects.new(nombre, me)
         bpy.context.scene.collection.objects.link(ob)
-        ob.location = (x, y, ALTO * 0.35)
+        ob.location = (x, y, ALTO * 0.2)  # bajo: no se cruza con la letra
 
 
 def letra(caracter, nombre):
@@ -217,11 +218,27 @@ def tinta(nombre, color):
 
 # ---------- Escena ----------
 def crear_piso():
+    # fondo infinito: el piso sube en curva atrás (se ve en las tomas bajas)
+    pared_y, radio, ancho = 8.0, 6.0, 80.0
+    perfil = [(y, 0.0) for y in (-40.0, 0.0, pared_y - radio)]
+    for i in range(1, 32):
+        a = i / 32 * math.pi / 2
+        perfil.append((pared_y - radio + radio * math.sin(a), radio - radio * math.cos(a)))
+    perfil += [(pared_y, radio + 40.0)]
     bm = bmesh.new()
-    bmesh.ops.create_grid(bm, x_segments=1, y_segments=1, size=40)
+    filas = [[bm.verts.new((x, y, z)) for x in (-ancho / 2, 0.0, ancho / 2)] for y, z in perfil]
+    for a, b in zip(filas, filas[1:]):
+        for j in range(2):
+            bm.faces.new((a[j], a[j + 1], b[j + 1], b[j]))
+    bm.normal_update()
+    bm.faces.ensure_lookup_table()
+    if bm.faces[0].normal.z < 0:
+        bmesh.ops.reverse_faces(bm, faces=bm.faces[:])
     me = bpy.data.meshes.new("Piso")
     bm.to_mesh(me)
     bm.free()
+    for p in me.polygons:
+        p.use_smooth = True
     ob = bpy.data.objects.new("Piso", me)
     bpy.context.scene.collection.objects.link(ob)
     mat = bpy.data.materials.new("Fondo gris")
@@ -262,7 +279,7 @@ def main():
     escena = bpy.context.scene
 
     blanco = plastico("PBT blanco", COLOR_BLANCO)
-    azul = plastico("PBT azul", COLOR_AZUL, 0.38)
+    azul = plastico("PBT azul", COLOR_AZUL)
     azul_transp = plastico_transparente("Azul transparente", COLOR_AZUL)
     tinta_oscura = tinta("Letra oscura", COLOR_LETRA_OSCURA)
     tinta_clara = tinta("Letra clara", COLOR_LETRA_CLARA)
@@ -277,7 +294,8 @@ def main():
             t.location = (x, y, 0)
             if caracter == TRANSPARENTE:
                 t.data.materials.append(azul_transp)
-                vastago(x, y, azul)  # se ve a través: el vástago en cruz de la tecla
+                if VASTAGO:
+                    vastago(x, y, azul_transp)  # se ve a través: el vástago en cruz
             else:
                 t.data.materials.append(azul if caracter in AZULES else blanco)
             le = letra(caracter, "Letra " + caracter)
@@ -310,8 +328,8 @@ def main():
     # softbox grande arriba a la izquierda: sombras suaves hacia abajo a la derecha
     # dos softbox: uno grande y alto, centrado (fondo parejo) y uno arriba a la izquierda
     # que da la dirección de las sombras, como en la referencia
-    luz("Cenital", 380, (0, 0, 14), 24)
-    luz("Softbox", 320, (-3, 2.5, 8), 6)
+    luz("Cenital", 300, (0, 0, 14), 24)
+    luz("Softbox", 520, (-3, 2.5, 8), 3.5)  # más chico: sombra más marcada abajo a la derecha
     luz("Relleno", 90, (5, -4, 6), 6, (0.96, 0.97, 1.0))
     # contraluz baja detrás: hace brillar la tecla transparente
     contra = luz("Contraluz", 320, (-1.5, 5, 2), 3)

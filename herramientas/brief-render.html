@@ -1,0 +1,579 @@
+<title>Brief de Render</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: panel de propiedades a la izquierda (como el de un programa 3D), prompt fijo a la derecha; en celular se apila y el botón de copiar queda abajo. */
+/* Paleta: grafito + luz principal cálida (3200 K) + relleno frío (6500 K). */
+:root {
+  --bg: #14161b;
+  --panel: #1b1e25;
+  --line: #2b3039;
+  --fg: #e6e8ed;
+  --muted: #8f96a5;
+  --key: #f0a54a;
+  --fill: #86b4ff;
+  --on-key: #1a1206;
+  --display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --body: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg: #eceef2; --panel: #ffffff; --line: #d4d8e0; --fg: #1a1d24; --muted: #5b6271;
+    --key: #b5650f; --fill: #2e6bd3; --on-key: #ffffff; color-scheme: light;
+  }
+}
+:root[data-theme="light"] {
+  --bg: #eceef2; --panel: #ffffff; --line: #d4d8e0; --fg: #1a1d24; --muted: #5b6271;
+  --key: #b5650f; --fill: #2e6bd3; --on-key: #ffffff; color-scheme: light;
+}
+
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--fg);
+  font-family: var(--body); font-size: 15px; line-height: 1.45;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 24px 96px;
+}
+.app { max-width: 1240px; margin: 0 auto; display: grid; gap: 24px; }
+@media (min-width: 980px) {
+  .app { grid-template-columns: minmax(0, 1fr) minmax(0, 440px); align-items: start; }
+  body { padding-bottom: 32px; }
+}
+
+header.top { grid-column: 1 / -1; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: end; gap: 12px 24px; }
+.eyebrow { font-family: var(--mono); font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+h1 {
+  margin: 4px 0 0; font-family: var(--display); font-weight: 800; font-stretch: 125%;
+  font-size: clamp(30px, 6vw, 48px); line-height: 1; letter-spacing: -.02em; text-wrap: balance;
+}
+h1 span { color: var(--key); }
+.lede { margin: 8px 0 0; color: var(--muted); max-width: 56ch; }
+.top-actions { display: flex; gap: 8px; }
+
+.controls { display: grid; gap: 16px; min-width: 0; }
+section.blk { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; display: grid; gap: 14px; min-width: 0; }
+.blk-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+h2 { margin: 0; font-family: var(--display); font-stretch: 112%; font-weight: 700; font-size: 17px; letter-spacing: -.005em; }
+.blk-head small { font-family: var(--mono); font-size: 11px; color: var(--muted); letter-spacing: .08em; text-transform: uppercase; }
+.row { display: grid; gap: 8px; min-width: 0; }
+.row > label, .row > .lbl { font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+
+.opts { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.opts.tight { grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); }
+.opt {
+  appearance: none; font: inherit; color: var(--fg); text-align: left; cursor: pointer;
+  background: transparent; border: 1px solid var(--line); border-radius: 8px;
+  padding: 9px 10px; display: grid; gap: 2px; min-width: 0;
+  transition: border-color .15s, background-color .15s;
+}
+.opt:hover { border-color: color-mix(in srgb, var(--key) 50%, var(--line)); }
+.opt:focus-visible, .btn:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--fill); outline-offset: 2px; }
+.opt[aria-pressed="true"] { border-color: var(--key); background: color-mix(in srgb, var(--key) 14%, transparent); }
+.opt b { font-weight: 600; font-size: 14px; }
+.opt i { font-style: normal; font-family: var(--mono); font-size: 11px; color: var(--muted); overflow-wrap: anywhere; }
+.opt.multi { grid-template-columns: 18px 1fr; column-gap: 8px; align-items: start; }
+.opt.multi::before {
+  content: ""; width: 14px; height: 14px; margin-top: 3px; border: 1.5px solid var(--muted); border-radius: 4px; grid-row: span 2;
+}
+.opt.multi[aria-pressed="true"]::before { background: var(--key); border-color: var(--key); box-shadow: inset 0 0 0 2px var(--panel); }
+
+.looks { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px; }
+.look { padding: 12px; gap: 6px; }
+.dots { display: flex; gap: 4px; }
+.dots span { width: 14px; height: 14px; border-radius: 50%; border: 1px solid color-mix(in srgb, var(--fg) 25%, transparent); }
+.badge { font-family: var(--mono); font-size: 11px; color: var(--key); }
+
+textarea, input[type="text"], select {
+  width: 100%; font: inherit; color: var(--fg); background: var(--bg);
+  border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px;
+}
+textarea { resize: vertical; min-height: 64px; }
+.inline { display: flex; flex-wrap: wrap; gap: 12px; }
+.inline .row { flex: 1 1 120px; }
+.swatches { display: flex; flex-wrap: wrap; gap: 12px; }
+.sw { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.sw input { width: 40px; height: 32px; padding: 0; border: 1px solid var(--line); border-radius: 6px; background: none; cursor: pointer; }
+.sw code { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+
+aside.out { min-width: 0; }
+@media (min-width: 980px) {
+  aside.out { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 16px); }
+}
+.out-card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; max-height: calc(100vh - 32px); overflow: hidden; }
+.out-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--line); }
+.out-head small { font-family: var(--mono); font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+pre#prompt {
+  margin: 0; padding: 16px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere;
+  font-family: var(--mono); font-size: 12.5px; line-height: 1.6; color: var(--fg);
+}
+.out-foot { padding: 12px 16px; border-top: 1px solid var(--line); display: flex; gap: 8px; flex-wrap: wrap; }
+
+.btn {
+  appearance: none; font: inherit; font-weight: 600; font-size: 14px; cursor: pointer;
+  border-radius: 8px; padding: 10px 14px; border: 1px solid var(--line); background: transparent; color: var(--fg);
+}
+.btn.primary { background: var(--key); border-color: var(--key); color: var(--on-key); }
+.btn.primary:hover { filter: brightness(1.06); }
+
+.bar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 5;
+  display: flex; gap: 8px; align-items: center; justify-content: space-between;
+  background: color-mix(in srgb, var(--panel) 92%, transparent); backdrop-filter: blur(8px);
+  border-top: 1px solid var(--line);
+  padding: 10px max(16px, env(safe-area-inset-right, 0px)) calc(10px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
+}
+.bar span { font-size: 13px; color: var(--muted); }
+@media (min-width: 980px) { .bar { display: none; } }
+
+.toast {
+  position: fixed; left: 50%; bottom: calc(76px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%);
+  background: var(--fg); color: var(--bg); padding: 8px 14px; border-radius: 999px; font-size: 13px; font-weight: 600;
+  opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 6;
+}
+.toast.show { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="app">
+  <header class="top">
+    <div>
+      <div class="eyebrow">Blender · Claude</div>
+      <h1>Brief de <span>Render</span></h1>
+      <p class="lede">Elegí una receta, ajustá luz, material y cámara, y copiá el prompt. Cada opción se traduce a valores técnicos (Kelvin, milímetros, f-stops) para que Claude no tenga que adivinar.</p>
+    </div>
+    <div class="top-actions">
+      <button class="btn" id="reset" type="button">Restablecer</button>
+    </div>
+  </header>
+
+  <div class="controls">
+    <section class="blk">
+      <div class="blk-head"><h2>Receta</h2><small id="look-state"></small></div>
+      <div class="looks" id="g-look"></div>
+      <div class="row">
+        <label for="intent">Intención visual</label>
+        <textarea id="intent" rows="2"></textarea>
+      </div>
+    </section>
+
+    <section class="blk">
+      <div class="blk-head"><h2>Pieza</h2><small>qué entregar</small></div>
+      <div class="row"><span class="lbl">Entrega</span><div class="opts" id="g-entrega"></div></div>
+      <div class="row" data-hide="glb"><span class="lbl">Formato</span><div class="opts" id="g-formato"></div></div>
+      <div class="inline" data-show="anim">
+        <div class="row"><label for="duracion">Duración</label>
+          <select id="duracion"><option value="3">3 s</option><option value="5">5 s</option><option value="6">6 s</option><option value="8">8 s</option><option value="10">10 s</option></select></div>
+        <div class="row"><label for="fps">Cuadros por segundo</label>
+          <select id="fps"><option value="24">24 fps</option><option value="30">30 fps</option><option value="60">60 fps</option></select></div>
+      </div>
+      <div class="row">
+        <label for="sujeto">Sujeto</label>
+        <textarea id="sujeto" rows="2"></textarea>
+      </div>
+      <div class="row" data-hide="glb"><span class="lbl">Espacio para texto</span><div class="opts tight" id="g-aire"></div></div>
+    </section>
+
+    <section class="blk">
+      <div class="blk-head"><h2>Iluminación</h2><small>temperatura · dirección</small></div>
+      <div class="opts" id="g-luz"></div>
+    </section>
+
+    <section class="blk">
+      <div class="blk-head"><h2>Materiales</h2><small>principled bsdf</small></div>
+      <div class="row"><span class="lbl">Principal</span><div class="opts" id="g-mat1"></div></div>
+      <div class="row"><span class="lbl">Secundario (pedestal, detalles)</span><div class="opts" id="g-mat2"></div></div>
+    </section>
+
+    <section class="blk">
+      <div class="blk-head"><h2>Entorno y paleta</h2><small>sRGB</small></div>
+      <div class="row" data-hide="glb"><span class="lbl">Entorno</span><div class="opts" id="g-entorno"></div></div>
+      <div class="row"><span class="lbl">Paleta</span><div class="looks" id="g-paleta"></div></div>
+      <div class="swatches">
+        <label class="sw" for="c-main"><input type="color" id="c-main"> Principal <code id="c-main-v"></code></label>
+        <label class="sw" for="c-accent"><input type="color" id="c-accent"> Acento <code id="c-accent-v"></code></label>
+        <label class="sw" for="c-bg"><input type="color" id="c-bg"> Fondo <code id="c-bg-v"></code></label>
+      </div>
+    </section>
+
+    <section class="blk">
+      <div class="blk-head"><h2>Cámara</h2><small>plano · focal · f-stop</small></div>
+      <div class="row"><span class="lbl">Plano</span><div class="opts" id="g-plano"></div></div>
+      <div class="row"><span class="lbl">Ángulo</span><div class="opts" id="g-angulo"></div></div>
+      <div class="row"><span class="lbl">Focal</span><div class="opts tight" id="g-focal"></div></div>
+      <div class="row" data-hide="glb"><span class="lbl">Profundidad de campo</span><div class="opts" id="g-dof"></div></div>
+    </section>
+
+    <section class="blk" data-show="anim">
+      <div class="blk-head"><h2>Movimiento</h2><small>easing · loop</small></div>
+      <div class="row"><span class="lbl">Cámara</span><div class="opts" id="g-mov"></div></div>
+      <div class="row"><span class="lbl">Sujeto</span><div class="opts" id="g-anim"></div></div>
+    </section>
+
+    <section class="blk">
+      <div class="blk-head"><h2>Render y salida</h2><small>agx</small></div>
+      <div class="row" data-hide="glb"><span class="lbl">Calidad</span><div class="opts" id="g-calidad"></div></div>
+      <div class="row"><span class="lbl">Archivo</span><div class="opts" id="g-salida"></div></div>
+      <div class="row" data-hide="glb"><span class="lbl">Postproducción (compositor)</span><div class="opts" id="g-post"></div></div>
+    </section>
+
+    <section class="blk">
+      <div class="blk-head"><h2>Cómo trabaja Claude</h2><small>proceso</small></div>
+      <div class="opts" id="g-proceso"></div>
+    </section>
+
+    <section class="blk">
+      <div class="blk-head"><h2>Notas y referencias</h2></div>
+      <div class="row">
+        <label for="notas">Qué tomar de cada referencia</label>
+        <textarea id="notas" rows="3" placeholder="Ej.: de la foto 1, la luz de borde dorada; de la foto 2, el mármol con vetas finas. Adjunto las dos imágenes."></textarea>
+      </div>
+    </section>
+  </div>
+
+  <aside class="out" id="salida-prompt">
+    <div class="out-card">
+      <div class="out-head"><h2>Prompt</h2><small id="count"></small></div>
+      <pre id="prompt" tabindex="0"></pre>
+      <div class="out-foot"><button class="btn primary" id="copy" type="button">Copiar prompt</button></div>
+    </div>
+  </aside>
+</div>
+
+<div class="bar">
+  <span id="bar-sum"></span>
+  <button class="btn primary" id="copy2" type="button">Copiar prompt</button>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+const PALETAS = {
+  champagne: { label: "Champagne y marfil", c: ["#C9A46A", "#F3E9D7", "#EFE8DC"] },
+  rosa:      { label: "Rosa empolvado",     c: ["#D8A7A0", "#B8875B", "#F4E6E1"] },
+  salvia:    { label: "Verde salvia",       c: ["#9CAF94", "#C9A46A", "#EEF0E8"] },
+  noche:     { label: "Azul noche y oro",   c: ["#D4A64A", "#F1E3C2", "#141B2D"] },
+  bordo:     { label: "Bordó y oro",        c: ["#C79A4B", "#6E1F2C", "#2A1015"] },
+  neon:      { label: "Neón noche",         c: ["#FF3D9A", "#26E0FF", "#120E22"] },
+  lavanda:   { label: "Lavanda",            c: ["#B9A6D6", "#E8D9A8", "#F2EEF7"] },
+};
+
+const MATS = [
+  { id: "oro", label: "Oro pulido", hint: "metallic 1 · rough 0.15", spec: "Oro pulido: Principled BSDF, metallic 1.0, base color tomado del color principal de la paleta, roughness 0.15 con variación por ruido (0.10–0.22) y micro-rayas sutiles." },
+  { id: "oro_cep", label: "Oro cepillado", hint: "rough 0.35 · aniso 0.6", spec: "Oro cepillado: metallic 1.0, roughness 0.35, anisotropía 0.6 orientada en una dirección, reflejos estirados y suaves." },
+  { id: "oro_rosa", label: "Oro rosa", hint: "metallic 1 · rough 0.2", spec: "Oro rosa: metallic 1.0, base color cobrizo rosado (#E8B4A0 aprox.), roughness 0.2 con variación sutil." },
+  { id: "plata", label: "Plata / cromo", hint: "metallic 1 · rough 0.06", spec: "Plata espejada: metallic 1.0, base casi blanca, roughness 0.06. Necesita un entorno con contraste para que los reflejos se lean." },
+  { id: "vidrio", label: "Vidrio", hint: "transmission 1 · IOR 1.45", spec: "Vidrio: transmission 1.0, IOR 1.45, roughness 0.02, tinte muy leve del color de acento. Ver en Cycles; asegurar fondo con contraste detrás." },
+  { id: "esmerilado", label: "Vidrio esmerilado", hint: "transmission 1 · rough 0.3", spec: "Vidrio esmerilado: transmission 1.0, roughness 0.3, IOR 1.45; difumina lo que hay detrás." },
+  { id: "acrilico", label: "Acrílico de color", hint: "transmission 0.6", spec: "Acrílico de color: transmission 0.6, roughness 0.05, base del color principal, bordes más saturados por el espesor." },
+  { id: "ceramica", label: "Cerámica esmaltada", hint: "rough 0.35 · coat 0.3", spec: "Cerámica esmaltada: base del color principal, roughness 0.35, coat 0.3 con coat roughness 0.05." },
+  { id: "marmol", label: "Mármol", hint: "PBR · rough 0.2", spec: "Mármol blanco con vetas grises finas (textura PBR de Poly Haven, o noise + wave), roughness 0.2, subsurface muy leve." },
+  { id: "terciopelo", label: "Terciopelo", hint: "sheen 1 · rough 0.8", spec: "Terciopelo: base del color de acento, roughness 0.8, sheen 1.0 para el brillo de borde típico de la tela." },
+  { id: "papel", label: "Papel de algodón", hint: "rough 0.9 · fibras", spec: "Papel de algodón: base marfil, roughness 0.9, normal map de fibras muy sutil, bordes levemente irregulares." },
+  { id: "madera", label: "Madera clara", hint: "PBR · rough 0.5", spec: "Madera clara (roble o fresno) con textura PBR de Poly Haven, veta visible, roughness 0.5, barniz mate." },
+];
+
+const OPTS = {
+  entrega: [
+    { id: "still", label: "Imagen fija", hint: "PNG · JPG", spec: "Imagen fija." },
+    { id: "anim", label: "Animación / loop", hint: "MP4 · WebM", spec: "Animación en loop." },
+    { id: "glb", label: "Modelo para web", hint: "GLB · three.js", spec: "Modelo 3D para web (three.js o <model-viewer>): menos de 50 000 triángulos, texturas horneadas (bake) a 1024–2048 px, materiales PBR compatibles con glTF, origen en la base y escala en metros." },
+  ],
+  formato: [
+    { id: "916", label: "9:16 historia", hint: "1080×1920", spec: "9:16 vertical, 1080×1920 px (historias, WhatsApp, Reels)." },
+    { id: "45", label: "4:5 feed", hint: "1080×1350", spec: "4:5 vertical, 1080×1350 px (feed de Instagram)." },
+    { id: "11", label: "1:1", hint: "1080×1080", spec: "1:1 cuadrado, 1080×1080 px." },
+    { id: "169", label: "16:9", hint: "1920×1080", spec: "16:9 horizontal, 1920×1080 px (web, pantallas)." },
+    { id: "a5", label: "A5 impresión", hint: "1748×2480 · 300 dpi", spec: "A5 vertical para imprimir: 1748×2480 px (148×210 mm a 300 dpi), más 3 mm de sangrado por lado si va a imprenta." },
+  ],
+  aire: [
+    { id: "no", label: "Ninguno", hint: "lleno", spec: "" },
+    { id: "arriba", label: "Arriba", hint: "~30%", spec: "Dejar el tercio superior del cuadro limpio (fondo simple, sin elementos) para superponer texto después." },
+    { id: "abajo", label: "Abajo", hint: "~30%", spec: "Dejar el tercio inferior del cuadro limpio para superponer texto después." },
+    { id: "lado", label: "Lateral", hint: "~40%", spec: "Sujeto desplazado a un tercio lateral; el otro lado queda limpio para texto." },
+  ],
+  luz: [
+    { id: "estudio", label: "Estudio suave", hint: "5500 K · área 2 m", spec: "Estudio suave: luz principal de área grande (2×2 m) a 45° lateral y 30° de altura, 5500 K; relleno del lado opuesto al 30% de la principal; luz de borde detrás al 80%. Sombras suaves, contraste medio-bajo." },
+    { id: "dorada", label: "Atardecer dorado", hint: "3200 K · sol a 8°", spec: "Atardecer dorado: Sun lamp a 8–10° de elevación, 3200 K, ángulo 2° para sombras suaves y largas; HDRI de atardecer de Poly Haven a baja intensidad como relleno. Sombras con tinte frío para contrastar." },
+    { id: "dramatica", label: "Dramática", hint: "clave baja · rim 2×", spec: "Dramática en clave baja: luz principal chica y dura a 60° lateral; relleno al 10% o nada; luz de borde detrás al doble de la principal para recortar la silueta; fondo casi negro sin llegar a negro puro." },
+    { id: "ventana", label: "Luz de ventana", hint: "5000 K · gobo", spec: "Luz de ventana: luz de área rectangular a un costado, 5000 K, con gobo de persiana o marco que proyecta sombras sobre la escena; relleno por rebote; ambiente íntimo y natural." },
+    { id: "highkey", label: "Clave alta", hint: "difusa · sin sombras duras", spec: "Clave alta luminosa: luz principal enorme y difusa frontal-superior, relleno alto, fondo casi blanco sin quemarse; mantener sombra de contacto debajo del sujeto." },
+    { id: "exterior", label: "Exterior nublado", hint: "solo HDRI", spec: "Exterior natural: iluminación solo con un HDRI de cielo nublado de Poly Haven, rotado para que la luz llegue en 3/4; como mucho, un rebote sutil extra." },
+    { id: "velas", label: "Velas", hint: "1900–2200 K", spec: "Luz de velas: varias luces puntuales pequeñas de 1900–2200 K a baja altura, radio chico; resto de la escena en penumbra cálida. Si es animación, parpadeo muy sutil." },
+    { id: "neon", label: "Neón / fiesta", hint: "2 colores · niebla", spec: "Neón de fiesta: dos luces de color desde lados opuestos, con los colores principal y de acento de la paleta; niebla volumétrica de baja densidad; reflejos de color en superficies brillantes." },
+  ],
+  mat1: MATS,
+  mat2: [{ id: "ninguno", label: "Ninguno", hint: "solo principal", spec: "" }, ...MATS],
+  entorno: [
+    { id: "infinito", label: "Fondo infinito", hint: "cyclorama", spec: "Fondo infinito curvo (cyclorama) del color de fondo de la paleta, con un gradiente leve hacia donde llega la luz." },
+    { id: "marmol", label: "Mesa de mármol", hint: "fondo desenfocado", spec: "Sujeto apoyado sobre una mesa de mármol; fondo lejano y desenfocado del color de fondo." },
+    { id: "tela", label: "Seda arrugada", hint: "cloth sim", spec: "Sujeto sobre tela de seda o satén con pliegues naturales (simulación de tela), en el color de fondo o de acento." },
+    { id: "floral", label: "Flores", hint: "assets · bokeh", spec: "Sujeto rodeado de flores y pétalos (assets de BlenderKit o Poly Haven): algunas en primer plano desenfocadas, otras detrás." },
+    { id: "salon", label: "Salón de fiesta", hint: "bokeh cálido", spec: "Fondo de salón de fiesta muy desenfocado: bokeh de luces cálidas, sin detalles reconocibles." },
+    { id: "alfa", label: "Transparente", hint: "shadow catcher", spec: "Fondo transparente (Render > Film > Transparent) con shadow catcher debajo del sujeto para conservar la sombra de contacto." },
+  ],
+  plano: [
+    { id: "macro", label: "Detalle", hint: "100 mm macro", focal: 100, spec: "Plano detalle (macro): un fragmento del sujeto llena el cuadro y se ve la textura del material." },
+    { id: "primer", label: "Primer plano", hint: "sujeto ~70%", focal: 85, spec: "Primer plano: el sujeto ocupa cerca del 70% del cuadro." },
+    { id: "medio", label: "Plano medio", hint: "sujeto ~50%", focal: 50, spec: "Plano medio: el sujeto ocupa cerca del 50% del cuadro, con algo de entorno." },
+    { id: "general", label: "Plano general", hint: "sujeto ~30%", focal: 35, spec: "Plano general: el sujeto ocupa cerca del 30% del cuadro; el entorno cuenta la historia." },
+  ],
+  angulo: [
+    { id: "frontal", label: "Frontal", hint: "0°", spec: "Ángulo frontal, cámara a la altura del centro del sujeto." },
+    { id: "tres", label: "3/4", hint: "30–40° de giro", spec: "Ángulo 3/4: cámara girada 30–40° respecto del frente para mostrar volumen." },
+    { id: "contra", label: "Contrapicado leve", hint: "10–15° abajo", spec: "Contrapicado leve: cámara 10–15° por debajo del sujeto mirando hacia arriba; lo vuelve imponente." },
+    { id: "picado", label: "Picado leve", hint: "15–25° arriba", spec: "Picado leve: cámara 15–25° por encima mirando hacia abajo; resultado elegante y cercano." },
+    { id: "cenital", label: "Cenital", hint: "90° · flat lay", spec: "Cenital (flat lay): cámara a 90° mirando hacia abajo, composición plana y ordenada." },
+  ],
+  focal: [
+    { id: "auto", label: "Auto", hint: "según plano", spec: "" },
+    { id: "35", label: "35 mm", hint: "amplio", spec: "35 mm" },
+    { id: "50", label: "50 mm", hint: "natural", spec: "50 mm" },
+    { id: "85", label: "85 mm", hint: "retrato", spec: "85 mm" },
+    { id: "100", label: "100 mm", hint: "macro", spec: "100 mm" },
+  ],
+  dof: [
+    { id: "no", label: "Todo nítido", hint: "f/16", spec: "Sin desenfoque: todo nítido (DOF desactivado o f/16)." },
+    { id: "sutil", label: "Sutil", hint: "f/4", spec: "Profundidad de campo sutil (f/4): foco en el sujeto, fondo apenas suave." },
+    { id: "marcada", label: "Marcada", hint: "f/1.8–2.8", spec: "Profundidad de campo marcada (f/1.8–2.8): foco exacto en el punto principal del sujeto (usar un empty como objetivo de foco), primer plano y fondo con bokeh." },
+  ],
+  mov: [
+    { id: "fija", label: "Fija con respiración", hint: "1–2%", spec: "Cámara fija con un micro-movimiento de 1–2% para que no se sienta congelada." },
+    { id: "pushin", label: "Push-in lento", hint: "avanza 10–15%", spec: "Push-in lento: la cámara avanza 10–15% de la distancia durante toda la toma, con ease in/out." },
+    { id: "orbita", label: "Órbita parcial", hint: "30–45°", spec: "Órbita parcial de 30–45° alrededor del sujeto, con ease in/out." },
+    { id: "360", label: "Giro 360°", hint: "turntable", spec: "Giro completo de 360° (turntable) a velocidad constante para que el loop no tenga corte: el primer y el último cuadro deben coincidir." },
+    { id: "dolly", label: "Dolly lateral", hint: "parallax", spec: "Dolly lateral (traveling) de 20–30 cm con parallax de un elemento en primer plano." },
+    { id: "revelado", label: "Revelado", hint: "grúa", spec: "Revelado: la cámara sube desde detrás de un elemento de primer plano hasta descubrir el sujeto." },
+  ],
+  anim: [
+    { id: "ninguna", label: "Quieto", hint: "solo cámara", spec: "El sujeto queda quieto; el movimiento lo da la cámara." },
+    { id: "flotar", label: "Flotación suave", hint: "±2 cm · ±5°", spec: "Flotación suave: sube y baja 2–3 cm y rota ±5°, con curvas senoidales y loop perfecto." },
+    { id: "entrada", label: "Entrada con rebote", hint: "overshoot 5%", spec: "Entrada: escala de 0 a 1 con anticipación y rebote leve (overshoot 5%); los elementos entran escalonados cada 3–4 cuadros." },
+    { id: "brillo", label: "Barrido de brillo", hint: "light sweep", spec: "Barrido de brillo: una franja de luz recorre el material metálico de lado a lado una vez por ciclo." },
+    { id: "cuenta", label: "Cuenta regresiva", hint: "dígitos que giran", spec: "Cuenta regresiva: dígitos 3D que giran como un marcador mecánico, con easing y una pausa breve en cada número." },
+    { id: "destellos", label: "Destellos", hint: "partículas", spec: "Pocas partículas de destellos pequeños flotando alrededor, desenfocadas por la profundidad de campo." },
+    { id: "petalos", label: "Pétalos cayendo", hint: "rotación aleatoria", spec: "Pétalos cayendo lentamente con rotación y deriva aleatorias, pocos y bien distribuidos." },
+  ],
+  calidad: [
+    { id: "borrador", label: "Borrador", hint: "Eevee · 50%", spec: "Borrador para revisar: Eevee al 50% de resolución, sin motion blur. Solo para validar composición y luz." },
+    { id: "eevee", label: "Final rápido", hint: "Eevee + raytracing", spec: "Final rápido: Eevee con raytracing activado, sombras suaves, resolución completa. Bueno para animaciones web." },
+    { id: "cycles", label: "Final máximo", hint: "Cycles · 256–512", spec: "Final de máxima calidad: Cycles, 256–512 samples con noise threshold 0.01, denoiser OpenImageDenoise, 12 rebotes de luz; cáusticas solo si hay vidrio." },
+  ],
+  salida: [
+    { id: "png", for: "still", label: "PNG 16 bits", hint: "RGBA", spec: "PNG de 16 bits (RGBA si el fondo es transparente)." },
+    { id: "jpg", for: "still", label: "JPG", hint: "calidad 95", spec: "JPG calidad 95 para compartir rápido." },
+    { id: "mp4", for: "anim", label: "MP4", hint: "H.264", spec: "MP4 H.264, calidad alta, sin audio." },
+    { id: "webm", for: "anim", label: "WebM con alfa", hint: "VP9 transparente", spec: "WebM VP9 con canal alfa (fondo transparente) para superponer en la web." },
+    { id: "seq", for: "anim", label: "Secuencia PNG", hint: "frame_0001.png…", spec: "Secuencia PNG numerada (frame_0001.png…) para componer o convertir después." },
+    { id: "glb", for: "glb", label: "GLB", hint: "Draco", spec: "Archivo .glb con compresión Draco y texturas embebidas." },
+    { id: "glbanim", for: "glb", label: "GLB animado", hint: "acciones horneadas", spec: "Archivo .glb con la animación incluida (acciones horneadas) y compresión Draco." },
+  ],
+  post: [
+    { id: "glare", label: "Brillo en altas luces", hint: "fog glow leve", spec: "Glare (Fog Glow o Bloom) leve solo sobre las altas luces." },
+    { id: "vineta", label: "Viñeta", hint: "10–15%", spec: "Viñeta suave del 10–15%." },
+    { id: "grano", label: "Grano fílmico", hint: "sutil", spec: "Grano fílmico muy sutil para quitar la sensación digital." },
+    { id: "aberracion", label: "Aberración cromática", hint: "mínima en bordes", spec: "Aberración cromática mínima, solo en los bordes del cuadro." },
+    { id: "blur", label: "Motion blur", hint: "obturador 0.5", spec: "Motion blur con obturador 0.5 (180°) si es animación." },
+  ],
+  proceso: [
+    { id: "plan", label: "Plan primero", hint: "espera mi OK", spec: "Antes de construir, presentame un plan breve (bloqueo, cámara, luz, materiales) y esperá mi OK." },
+    { id: "feedback", label: "Ciclo de revisión", hint: "render → mirar → corregir", spec: "Trabajá en ciclo: render de prueba en baja → mirá la imagen → listá 3 problemas visuales concretos → corregí → repetí (máximo 3 vueltas) antes de mostrarme el resultado." },
+    { id: "rubrica", label: "Lista anti-amateur", hint: "7 chequeos", spec: "Revisá el resultado contra esta lista: objetos flotando sin sombra de contacto; negros puros o blancos quemados; luz plana; todo igual de nítido; materiales de plástico uniforme; cámara centrada sin intención; saturación excesiva." },
+    { id: "variantes", label: "4 variantes de luz", hint: "miniaturas", spec: "Primero generá 4 variantes de iluminación en miniatura (dramática, suave, dorada, fría) para que yo elija antes de seguir." },
+    { id: "params", label: "Parámetros editables", hint: "variables arriba", spec: "Poné al inicio del script las variables editables: textos, colores, intensidad y temperatura de cada luz, focal y duración." },
+    { id: "realismo", label: "Fundamentos de realismo", hint: "escala · biseles", spec: "Fundamentos: escala real en metros, biseles en todos los bordes duros, variación de roughness, nada perfectamente limpio." },
+    { id: "script", label: "Script reproducible", hint: ".py comentado", spec: "Guardá todo como un script .py reproducible y comentado, con nombres claros (CAM_Main, LGT_Key, MAT_Oro…)." },
+    { id: "uncambio", label: "Un cambio por vez", hint: "en cada iteración", spec: "En cada iteración cambiá una sola cosa y decime qué cambiaste." },
+  ],
+};
+const MULTI = ["post", "proceso"];
+
+const LOOKS = [
+  { id: "lujo", label: "Lujo dorado", pal: "noche",
+    intent: "Elegante y nocturna, como una campaña de joyería: el oro brilla sobre un fondo profundo, mucho contraste y detalles que atrapan la luz.",
+    set: { luz: "dramatica", mat1: "oro", mat2: "terciopelo", entorno: "infinito", plano: "primer", angulo: "contra", focal: "auto", dof: "sutil", mov: "pushin", anim: "brillo", post: ["glare", "vineta"] } },
+  { id: "romantico", label: "Romántico al atardecer", pal: "rosa",
+    intent: "Cálida y romántica, como una foto tomada en la hora dorada: luz baja y suave, tonos rosados y mucho desenfoque.",
+    set: { luz: "dorada", mat1: "oro_rosa", mat2: "ninguno", entorno: "tela", plano: "medio", angulo: "tres", focal: "auto", dof: "marcada", mov: "orbita", anim: "petalos", post: ["glare", "grano"] } },
+  { id: "minimal", label: "Minimal de estudio", pal: "champagne",
+    intent: "Limpia y moderna, como una foto de producto de estudio: formas simples, luz suave y mucho aire alrededor.",
+    set: { luz: "estudio", mat1: "ceramica", mat2: "marmol", entorno: "infinito", plano: "primer", angulo: "frontal", focal: "auto", dof: "sutil", mov: "fija", anim: "flotar", post: ["vineta"] } },
+  { id: "floral", label: "Editorial floral", pal: "salvia",
+    intent: "Natural y delicada, como una página de revista de bodas: papel, flores y luz de ventana.",
+    set: { luz: "ventana", mat1: "papel", mat2: "madera", entorno: "floral", plano: "medio", angulo: "cenital", focal: "50", dof: "sutil", mov: "dolly", anim: "ninguna", post: ["grano"] } },
+  { id: "fiesta", label: "Fiesta neón", pal: "neon",
+    intent: "Enérgica y nocturna, como la pista de baile: colores saturados en las luces, reflejos y algo de niebla.",
+    set: { luz: "neon", mat1: "acrilico", mat2: "plata", entorno: "salon", plano: "medio", angulo: "contra", focal: "auto", dof: "marcada", mov: "orbita", anim: "cuenta", post: ["glare", "aberracion"] } },
+  { id: "velas", label: "Velas y terciopelo", pal: "bordo",
+    intent: "Íntima y clásica, como una cena a la luz de las velas: penumbra cálida, terciopelo y destellos dorados.",
+    set: { luz: "velas", mat1: "oro_cep", mat2: "terciopelo", entorno: "tela", plano: "primer", angulo: "picado", focal: "auto", dof: "marcada", mov: "pushin", anim: "destellos", post: ["glare", "grano", "vineta"] } },
+];
+
+const BASE = {
+  entrega: "anim", formato: "916", duracion: "6", fps: "30", aire: "arriba",
+  sujeto: "Texto 3D «Sofía · 15» con bisel generoso y tipografía serif elegante, apoyado sobre un pedestal cilíndrico bajo.",
+  calidad: "eevee", salida: "mp4",
+  proceso: ["feedback", "rubrica", "params", "realismo", "script"],
+  notas: "",
+};
+
+const KEY = "brief-render-v1";
+let state;
+
+function applyLook(id) {
+  const l = LOOKS.find(x => x.id === id);
+  Object.assign(state, structuredClone(l.set));
+  state.look = id; state.lookEdited = false;
+  state.intent = l.intent; state.paleta = l.pal; state.colors = [...PALETAS[l.pal].c];
+}
+function fresh() { state = structuredClone(BASE); applyLook("lujo"); }
+
+try {
+  const saved = JSON.parse(localStorage.getItem(KEY) || "null");
+  if (saved && saved.luz) state = saved; else fresh();
+} catch { fresh(); }
+
+function save() { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch {} }
+const find = (k, id) => OPTS[k].find(o => o.id === id);
+const $ = id => document.getElementById(id);
+
+function optButton(id, html, pressed, onClick, extra = "") {
+  const b = document.createElement("button");
+  b.type = "button"; b.id = id; b.className = "opt " + extra;
+  b.setAttribute("aria-pressed", pressed ? "true" : "false");
+  b.innerHTML = html;
+  b.addEventListener("click", onClick);
+  return b;
+}
+
+function renderGroup(k) {
+  const el = $("g-" + k); el.replaceChildren();
+  let list = OPTS[k];
+  if (k === "salida") list = list.filter(o => o.for === state.entrega);
+  const multi = MULTI.includes(k);
+  if (k === "post" && state.entrega !== "anim") list = list.filter(o => o.id !== "blur");
+  for (const o of list) {
+    const on = multi ? state[k].includes(o.id) : state[k] === o.id;
+    el.append(optButton(`opt-${k}-${o.id}`, `<b>${o.label}</b><i>${o.hint}</i>`, on, () => {
+      if (multi) state[k] = on ? state[k].filter(x => x !== o.id) : [...state[k], o.id];
+      else state[k] = o.id;
+      if (["luz","mat1","mat2","entorno","plano","angulo","focal","dof","mov","anim","post"].includes(k)) state.lookEdited = true;
+      update();
+    }, multi ? "multi" : ""));
+  }
+}
+
+function renderLooks() {
+  const el = $("g-look"); el.replaceChildren();
+  for (const l of LOOKS) {
+    const dots = PALETAS[l.pal].c.map(c => `<span style="background:${c}"></span>`).join("");
+    el.append(optButton(`look-${l.id}`, `<b>${l.label}</b><span class="dots">${dots}</span>`, state.look === l.id, () => { applyLook(l.id); update(); }, "look"));
+  }
+  const pe = $("g-paleta"); pe.replaceChildren();
+  for (const [id, p] of Object.entries(PALETAS)) {
+    const dots = p.c.map(c => `<span style="background:${c}"></span>`).join("");
+    pe.append(optButton(`pal-${id}`, `<b>${p.label}</b><span class="dots">${dots}</span>`, state.paleta === id, () => {
+      state.paleta = id; state.colors = [...p.c]; update();
+    }, "look"));
+  }
+  const l = LOOKS.find(x => x.id === state.look);
+  $("look-state").textContent = l ? (state.lookEdited ? `${l.label} · ajustada` : l.label) : "personalizada";
+}
+
+function buildPrompt() {
+  const s = state, glb = s.entrega === "glb", anim = s.entrega === "anim";
+  const out = [];
+  const sec = (t, lines) => { const l = lines.filter(Boolean); if (l.length) out.push(`## ${t}`, ...l.map(x => `- ${x}`), ""); };
+  const plano = find("plano", s.plano);
+  const focal = s.focal === "auto" ? `${plano.focal} mm (según el plano)` : find("focal", s.focal).spec;
+  const m2 = find("mat2", s.mat2);
+  const [cm, ca, cb] = s.colors;
+
+  out.push("Armá en Blender la siguiente pieza usando Python (bpy). Seguí este brief; si algo no se puede, avisame antes de improvisar.", "");
+  sec("Pieza", [
+    `Entrega: ${find("entrega", s.entrega).spec}`,
+    !glb && `Formato: ${find("formato", s.formato).spec}`,
+    anim && `Duración: ${s.duracion} s a ${s.fps} fps (${s.duracion * s.fps} cuadros), en loop sin corte.`,
+    s.sujeto.trim() && `Sujeto: ${s.sujeto.trim()}`,
+    !glb && find("aire", s.aire).spec,
+  ]);
+  if (s.intent.trim()) out.push("## Intención visual", s.intent.trim(), "");
+  sec("Iluminación", [find("luz", s.luz).spec]);
+  sec("Materiales", [
+    `Principal: ${find("mat1", s.mat1).spec}`,
+    m2.id !== "ninguno" && `Secundario: ${m2.spec}`,
+  ]);
+  sec("Entorno y paleta", [
+    !glb && find("entorno", s.entorno).spec,
+    `Paleta: principal ${cm}, acento ${ca}, fondo ${cb}. Son valores sRGB: convertilos a lineal al cargarlos en los nodos. Saturación contenida.`,
+  ]);
+  sec("Cámara", [
+    plano.spec, find("angulo", s.angulo).spec, `Focal: ${focal}.`,
+    !glb && find("dof", s.dof).spec,
+  ]);
+  if (anim) sec("Movimiento", [
+    `Cámara: ${find("mov", s.mov).spec}`,
+    `Sujeto: ${find("anim", s.anim).spec}`,
+    "Nada de interpolación lineal salvo en el giro continuo: usar curvas con ease in/out y escalonar los elementos.",
+  ]);
+  sec("Render y salida", [
+    !glb && find("calidad", s.calidad).spec,
+    !glb && "Gestión de color: AgX (look Medium High Contrast salvo que la escena pida otro), exposición sin blancos quemados ni negros puros.",
+    `Archivo: ${find("salida", s.salida).spec}`,
+  ]);
+  if (!glb) sec("Postproducción (compositor)", s.post.filter(p => anim || p !== "blur").map(p => find("post", p).spec));
+  sec("Cómo trabajar", s.proceso.map(p => find("proceso", p).spec));
+  if (s.notas.trim()) out.push("## Notas y referencias", s.notas.trim(), "");
+  return out.join("\n").trim();
+}
+
+function update() {
+  const s = state;
+  if (!OPTS.salida.some(o => o.id === s.salida && o.for === s.entrega)) s.salida = OPTS.salida.find(o => o.for === s.entrega).id;
+  document.querySelectorAll("[data-show]").forEach(el => el.hidden = el.dataset.show !== s.entrega);
+  document.querySelectorAll("[data-hide]").forEach(el => el.hidden = el.dataset.hide === s.entrega);
+  Object.keys(OPTS).forEach(renderGroup);
+  renderLooks();
+  if ($("intent").value !== s.intent) $("intent").value = s.intent;
+  if ($("sujeto").value !== s.sujeto) $("sujeto").value = s.sujeto;
+  if ($("notas").value !== s.notas) $("notas").value = s.notas;
+  $("duracion").value = s.duracion; $("fps").value = s.fps;
+  ["main", "accent", "bg"].forEach((n, i) => { $("c-" + n).value = s.colors[i]; $("c-" + n + "-v").textContent = s.colors[i].toUpperCase(); });
+  const p = buildPrompt();
+  $("prompt").textContent = p;
+  $("count").textContent = `${p.split(/\s+/).length} palabras`;
+  const l = LOOKS.find(x => x.id === s.look);
+  $("bar-sum").textContent = `${l ? l.label : "Personalizada"} · ${find("entrega", s.entrega).label}`;
+  save();
+}
+
+$("intent").addEventListener("input", e => { state.intent = e.target.value; update(); });
+$("sujeto").addEventListener("input", e => { state.sujeto = e.target.value; update(); });
+$("notas").addEventListener("input", e => { state.notas = e.target.value; update(); });
+$("duracion").addEventListener("change", e => { state.duracion = e.target.value; update(); });
+$("fps").addEventListener("change", e => { state.fps = e.target.value; update(); });
+["main", "accent", "bg"].forEach((n, i) => $("c-" + n).addEventListener("input", e => {
+  state.colors[i] = e.target.value; state.paleta = "custom"; update();
+}));
+$("reset").addEventListener("click", () => { fresh(); update(); toast("Volviste a la receta inicial"); });
+
+let tt;
+function toast(msg) { const t = $("toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(tt); tt = setTimeout(() => t.classList.remove("show"), 1800); }
+async function copy() {
+  const text = buildPrompt();
+  try { await navigator.clipboard.writeText(text); toast("Prompt copiado"); }
+  catch {
+    const r = document.createRange(); r.selectNodeContents($("prompt"));
+    const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
+    $("salida-prompt").scrollIntoView({ block: "start" });
+    toast("Texto seleccionado: copialo desde el menú");
+  }
+}
+$("copy").addEventListener("click", copy);
+$("copy2").addEventListener("click", copy);
+
+update();
+</script>

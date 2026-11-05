@@ -95,29 +95,53 @@ def anillo_redondeado(medio, radio, z, por_esquina=10):
     return pts
 
 
+# Medidas reales de una tecla MX (1u ≈ 18 mm de base): 1 mm ≈ 0.0556 unidades
+MM = TECLA / 18.0
+PARED = 1.4 * MM          # espesor de las paredes laterales
+TECHO = 1.7 * MM          # espesor del techo (debajo del plato)
+
+
 def tecla(nombre):
-    """Tecla de perfil bajo: paredes en talud, borde redondeado y un plato arriba, apenas
-    hundido, con un escalón suave (como la referencia)."""
+    """Tecla de perfil bajo, hueca como una tecla real: paredes en talud, borde redondeado
+    y un plato arriba, apenas hundido, con un escalón suave (como la referencia)."""
     m = TECLA / 2
     h = ALTO
-    # (z, medio lado, radio de esquina) de abajo hacia arriba
-    perfil = [
+    # superficie de afuera: (z, medio lado, radio de esquina) de abajo hacia arriba
+    afuera = [
         (0.0, m, 0.07), (0.03, m, 0.07), (0.08, m * 0.995, 0.08),
         (h * 0.70, m * 0.90, 0.10), (h * 0.88, m * 0.86, 0.11), (h * 0.96, m * 0.81, 0.12),
         (h, m * 0.76, 0.13),                       # borde de arriba
         (h * 0.985, m * 0.72, 0.11),               # escalón hacia el plato
         (h * 0.975, m * 0.64, 0.10), (h * 0.97, m * 0.3, 0.10),
     ]
+    # superficie de adentro: la pared copia el talud con PARED de espesor y cierra en un
+    # techo plano TECHO por debajo del plato
+    techo = h * 0.97 - TECHO
+    adentro = [
+        (techo, m * 0.3, 0.06), (techo, m * 0.70 - PARED, 0.07),
+        (techo - 0.6 * MM, m * 0.80 - PARED, 0.08),   # el techo se redondea contra la pared
+        (h * 0.70, m * 0.90 - PARED, 0.10 - PARED * 0.5),
+        (0.08, m * 0.995 - PARED, 0.08 - PARED * 0.5), (0.0, m - PARED, 0.07 - PARED * 0.5),
+    ]
     bm = bmesh.new()
-    anillos = [[bm.verts.new(p) for p in anillo_redondeado(lado, r, z)] for z, lado, r in perfil]
+    anillos = [[bm.verts.new(p) for p in anillo_redondeado(lado, r, z)]
+               for z, lado, r in afuera + adentro]
     n = len(anillos[0])
-    for a, b in zip(anillos, anillos[1:]):
+    i_tope = len(afuera) - 1   # último anillo de afuera (centro del plato)
+    i_techo = len(afuera)      # primer anillo de adentro (centro del techo)
+    for i, (a, b) in enumerate(zip(anillos, anillos[1:])):
+        if i == i_tope:  # el plato y el techo son superficies distintas: no se unen
+            continue
         for k in range(n):
             bm.faces.new((a[k], a[(k + 1) % n], b[(k + 1) % n], b[k]))
-    centro = bm.verts.new((0, 0, h * 0.968))
+    centro_afuera = bm.verts.new((0, 0, h * 0.968))
+    centro_adentro = bm.verts.new((0, 0, techo))
     for k in range(n):
-        bm.faces.new((anillos[-1][k], anillos[-1][(k + 1) % n], centro))
-    bm.faces.new(list(reversed(anillos[0])))  # base cerrada
+        bm.faces.new((anillos[i_tope][k], anillos[i_tope][(k + 1) % n], centro_afuera))
+        bm.faces.new((anillos[i_techo][(k + 1) % n], anillos[i_techo][k], centro_adentro))
+    # el borde de abajo: el labio entre la pared de afuera y la de adentro
+    for k in range(n):
+        bm.faces.new((anillos[0][(k + 1) % n], anillos[0][k], anillos[-1][k], anillos[-1][(k + 1) % n]))
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
     me = bpy.data.meshes.new(nombre)
     bm.to_mesh(me)
@@ -132,18 +156,44 @@ def tecla(nombre):
 
 
 def vastago(x, y, mat):
-    """Cruz del vástago (stem) debajo de la tecla, que se ve a través del plástico."""
-    for nombre, (sx, sy) in (("Vastago X", (0.28, 0.08)), ("Vastago Y", (0.08, 0.28))):
-        bm = bmesh.new()
-        bmesh.ops.create_cube(bm, size=1.0)
-        bmesh.ops.scale(bm, vec=(sx, sy, ALTO * 0.4), verts=bm.verts)
-        me = bpy.data.meshes.new(nombre)
-        bm.to_mesh(me)
-        bm.free()
-        me.materials.append(mat)
-        ob = bpy.data.objects.new(nombre, me)
-        bpy.context.scene.collection.objects.link(ob)
-        ob.location = (x, y, ALTO * 0.2)  # bajo: no se cruza con la letra
+    """El encastre MX que cuelga del techo por dentro de la tecla: un barril redondo de
+    5.6 mm con el agujero en cruz de 4.1 × 1.2 mm, que termina apenas arriba del borde."""
+    curva = bpy.data.curves.new("Vastago", type="CURVE")
+    curva.dimensions = "2D"
+    curva.fill_mode = "BOTH"
+    radio = 2.8 * MM
+    lado, brazo = 4.1 * MM / 2, 1.2 * MM / 2
+    circulo = [(radio * math.cos(2 * math.pi * k / 48), radio * math.sin(2 * math.pi * k / 48))
+               for k in range(48)]
+    cruz = [(brazo, lado), (-brazo, lado), (-brazo, brazo), (-lado, brazo), (-lado, -brazo),
+            (-brazo, -brazo), (-brazo, -lado), (brazo, -lado), (brazo, -brazo), (lado, -brazo),
+            (lado, brazo), (brazo, brazo)]
+    for puntos in (circulo, cruz):
+        sp = curva.splines.new("POLY")
+        sp.points.add(len(puntos) - 1)
+        for p, (px, py) in zip(sp.points, puntos):
+            p.co = (px, py, 0, 1)
+        sp.use_cyclic_u = True
+    techo = ALTO * 0.97 - TECHO
+    abajo = 0.6 * MM
+    curva.extrude = (techo - abajo) / 2 + 0.002  # se mete apenas en el techo: sin rendija
+    ob = bpy.data.objects.new("Vastago", curva)
+    bpy.context.scene.collection.objects.link(ob)
+    deps = bpy.context.evaluated_depsgraph_get()
+    me = bpy.data.meshes.new_from_object(ob.evaluated_get(deps))
+    bpy.data.objects.remove(ob, do_unlink=True)
+    bpy.data.curves.remove(curva)
+    bm = bmesh.new()
+    bm.from_mesh(me)
+    bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=1e-5)  # tapas y paredes en una pieza
+    bm.to_mesh(me)
+    bm.free()
+    me.materials.clear()
+    me.materials.append(mat)
+    ob = bpy.data.objects.new("Vastago", me)
+    bpy.context.scene.collection.objects.link(ob)
+    ob.location = (x, y, (techo + abajo) / 2)
+    return ob
 
 
 def letra(caracter, nombre):

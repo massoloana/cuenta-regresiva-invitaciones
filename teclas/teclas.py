@@ -47,9 +47,20 @@ MUESTRAS = 192
 GIRO_CAMARA = 24          # grados que la cámara mira desde la derecha (como la referencia)
 COLOR_PARED = "#CFCFCF"   # pared del fondo, con una luz que se nota
 FPS = 30
-DURACION = 4              # segundos del loop
+DURACION = 6              # segundos del loop
 RECORRIDO = 0.22          # cuánto se hunde una tecla al apretarla (≈ 4 mm, como una tecla real)
-ORDEN_APRETADO = ["W", "A", "S", "D", "Q", "E"]       # en qué orden se aprietan
+SALTO = 0.55              # cuánto saltan hacia adelante al principio
+# ritmo de las pulsaciones: (segundo, teclas). Variado, como alguien jugando: rachas rápidas,
+# dobles toques y a veces dos teclas juntas
+PULSACIONES = [
+    (1.45, "W"), (1.62, "A"), (1.74, "S"), (1.86, "D"),
+    (2.35, "QE"),
+    (2.80, "W"), (2.94, "W"),
+    (3.40, "AD"),
+    (3.70, "S"), (3.82, "E"), (3.94, "Q"),
+    (4.45, "W"), (4.55, "A"), (4.65, "S"), (4.75, "D"),
+    (5.20, "QWEASD"),
+]
 # -----------------------------------------------------------------------------
 
 
@@ -341,7 +352,7 @@ def crear_pared():
     bm.free()
     ob = bpy.data.objects.new("Pared", me)
     bpy.context.scene.collection.objects.link(ob)
-    ob.location = (0, 7, 0)
+    ob.location = (0, 2.6, 0)  # cerca: recibe las sombras de las teclas
     ob.rotation_euler = (math.pi / 2, 0, 0)
     mat = bpy.data.materials.new("Pared gris")
     mat.use_nodes = True
@@ -415,6 +426,7 @@ def main():
     # cámara de frente, apenas desde la derecha y arriba, como la referencia
     cam_data = bpy.data.cameras.new("Camara")
     cam_data.lens = 125
+    cam_data.shift_x, cam_data.shift_y = -0.05, 0.045  # el bloque queda centrado en el cuadro
     cam = bpy.data.objects.new("Camara", cam_data)
     escena.collection.objects.link(cam)
     centro = Vector((0, 0, 0))
@@ -437,10 +449,10 @@ def main():
         return ob
 
     # principal arriba a la izquierda y adelante: sombras suaves hacia abajo a la derecha
-    luz("Softbox", 520, (-5, -6, 5), 5)
+    luz("Softbox", 520, (-5, -6, 5), 2.5)  # más chica: sombras de las teclas en la pared
     luz("Relleno", 120, (6, -6, 0), 6, (0.96, 0.97, 1.0))
     # luz en la pared: un círculo suave arriba a la izquierda que se apaga hacia los bordes
-    pared = luz("Luz pared", 260, (-2, 1.5, 3.5), 6, mira=(-1, 7, 2))
+    pared = luz("Luz pared", 70, (-2, 0.5, 3.5), 6, mira=(-1, 2.6, 2))
     pared.data.spread = math.radians(120)
     # contraluz detrás: hace brillar la tecla transparente (sólo a ella, con light linking)
     contra = luz("Contraluz", 60, (-2.5, 3, 0.5), 3, mira=(-1.6, 0, -0.5))
@@ -451,29 +463,73 @@ def main():
     except AttributeError:
         pass
 
+    # sombras de una ventana con persiana cruzando la pared, en diagonal
+    sol = bpy.data.lights.new("Sol ventana", "SUN")
+    sol.energy = 1.6
+    sol.angle = math.radians(2.5)
+    sol.color = (1.0, 0.97, 0.92)
+    sol_ob = bpy.data.objects.new("Sol ventana", sol)
+    escena.collection.objects.link(sol_ob)
+    direccion = Vector((0.55, 1.0, -0.45)).normalized()   # de adelante-izquierda-arriba
+    sol_ob.rotation_euler = direccion.to_track_quat("-Z", "Y").to_euler()
+    for k in range(-8, 34):  # listones que sólo proyectan sombra (la cámara no los ve)
+        bm = bmesh.new()
+        bmesh.ops.create_cube(bm, size=1.0)
+        bmesh.ops.scale(bm, vec=(14, 0.05, 0.22), verts=bm.verts)
+        me = bpy.data.meshes.new("Liston")
+        bm.to_mesh(me)
+        bm.free()
+        liston = bpy.data.objects.new("Liston", me)
+        escena.collection.objects.link(liston)
+        liston.location = Vector((-4.5, -3.0, 3.5)) + Vector((0, 0, k * 0.55))
+        liston.rotation_euler = (0, math.radians(-28), 0)
+        for prop in ("visible_camera", "visible_diffuse", "visible_glossy", "visible_transmission",
+                     "visible_volume_scatter"):
+            setattr(liston, prop, False)
+    # la luz de la ventana sólo pega en la pared: las teclas quedan con su luz de estudio
+    solo_pared = bpy.data.collections.new("Solo pared")
+    solo_pared.objects.link(bpy.data.objects["Pared"])
+    try:
+        sol_ob.light_linking.receiver_collection = solo_pared
+    except AttributeError:
+        pass
+
     configurar_mundo()
     configurar_render()
     escena.render.fps = FPS
     escena.frame_start, escena.frame_end = 1, FPS * DURACION
 
-    # animación: cada tecla se aprieta una vez por loop, en ORDEN_APRETADO, con superposición
+    # animación: primero saltan hacia adelante una tras otra, después se aprietan con el
+    # ritmo de PULSACIONES. Todo vuelve a reposo al final, así el loop empalma.
     total = FPS * DURACION
-    hueco = total / len(ORDEN_APRETADO)
-    largo = int(FPS * 0.55)  # cuánto dura una pulsación
+    orden_salto = ["Q", "W", "E", "A", "S", "D"]
+
+    def salto(t):
+        """Salto hacia adelante (0-1) en el tiempo t (0-1): sube, cae y rebota apenas."""
+        if t <= 0 or t >= 1:
+            return 0.0
+        if t < 0.6:
+            return math.sin(math.pi * t / 0.6)
+        k = (t - 0.6) / 0.4
+        return -0.12 * math.sin(math.pi * k) * (1 - k)   # se hunde un poco al aterrizar
+
     prefs = bpy.context.preferences.edit
     interp = prefs.keyframe_new_interpolation_type
     prefs.keyframe_new_interpolation_type = "LINEAR"
     try:
-        for i, caracter in enumerate(ORDEN_APRETADO):
-            if caracter not in grupos:
-                continue
-            g = grupos[caracter]
-            inicio = int(i * hueco + hueco * 0.15)
+        for caracter, g in grupos.items():
             base = g.location.z
+            inicio_salto = 0.15 + 0.11 * orden_salto.index(caracter)
+            propias = [t0 for t0, teclas in PULSACIONES if caracter in teclas]
             for fr in range(total + 1):
-                t = (fr - inicio) / largo
-                g.location.z = base - RECORRIDO * apretado(t)
+                seg = fr / FPS
+                z = SALTO * salto((seg - inicio_salto) / 0.55)
+                presion = max([apretado((seg - t0) / 0.32) for t0 in propias] or [0.0])
+                g.location.z = base + z - RECORRIDO * presion
+                # en el salto se inclina apenas, como si se despegara
+                g.rotation_euler = (0.18 * salto((seg - inicio_salto) / 0.55), 0, 0)
                 g.keyframe_insert("location", index=2, frame=fr + 1)
+                g.keyframe_insert("rotation_euler", index=0, frame=fr + 1)
     finally:
         prefs.keyframe_new_interpolation_type = interp
     escena.frame_set(1)

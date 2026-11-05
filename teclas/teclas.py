@@ -25,7 +25,7 @@ from mathutils import Matrix, Vector
 FILAS = [["Q", "W", "E"], ["A", "S", "D"]]   # orden del teclado
 AZULES = {"Q", "A"}                           # teclas de plástico azul
 TRANSPARENTE = "A"                            # la tecla de azul medio transparente
-VASTAGO = False           # True = se ve la cruz del vástago adentro (de frente tapa la letra)
+VASTAGO = True            # se ve la cruz del vástago adentro de la tecla transparente
 
 COLOR_AZUL = "#2D5BE3"
 COLOR_BLANCO = "#E9E7E2"      # PBT blanco hueso, como la referencia
@@ -102,11 +102,11 @@ def tecla(nombre):
     h = ALTO
     # (z, medio lado, radio de esquina) de abajo hacia arriba
     perfil = [
-        (0.0, m, 0.10), (0.03, m, 0.10), (0.08, m * 0.995, 0.11),
-        (h * 0.70, m * 0.90, 0.14), (h * 0.86, m * 0.86, 0.15), (h * 0.95, m * 0.80, 0.16),
-        (h, m * 0.74, 0.18),                       # borde de arriba
-        (h * 0.985, m * 0.70, 0.15),               # escalón hacia el plato
-        (h * 0.975, m * 0.62, 0.13), (h * 0.97, m * 0.3, 0.13),
+        (0.0, m, 0.07), (0.03, m, 0.07), (0.08, m * 0.995, 0.08),
+        (h * 0.70, m * 0.90, 0.10), (h * 0.88, m * 0.86, 0.11), (h * 0.96, m * 0.81, 0.12),
+        (h, m * 0.76, 0.13),                       # borde de arriba
+        (h * 0.985, m * 0.72, 0.11),               # escalón hacia el plato
+        (h * 0.975, m * 0.64, 0.10), (h * 0.97, m * 0.3, 0.10),
     ]
     bm = bmesh.new()
     anillos = [[bm.verts.new(p) for p in anillo_redondeado(lado, r, z)] for z, lado, r in perfil]
@@ -325,7 +325,6 @@ def main():
         ob.visible_camera = False
         return ob
 
-    # softbox grande arriba a la izquierda: sombras suaves hacia abajo a la derecha
     # dos softbox: uno grande y alto, centrado (fondo parejo) y uno arriba a la izquierda
     # que da la dirección de las sombras, como en la referencia
     luz("Cenital", 300, (0, 0, 14), 24)

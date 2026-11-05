@@ -30,13 +30,13 @@ COLOR_AZUL = "#2D5BE3"
 COLOR_BLANCO = "#E9E7E2"      # PBT blanco hueso, como la referencia
 COLOR_LETRA_OSCURA = "#1B1B1D"
 COLOR_LETRA_CLARA = "#FFFFFF"
-COLOR_FONDO = "#DADADA"
+COLOR_FONDO = "#E2E2E2"   # gris claro: con la luz se ve como el de la referencia
 
 FONT_PATH = "fuentes/JetBrainsMono-Medium.ttf"   # Google Fonts, licencia OFL
-TAMANO_LETRA = 0.34
+TAMANO_LETRA = 0.46
 
 TECLA = 1.0          # ancho de la base de la tecla
-SEPARACION = 0.035   # aire entre teclas
+SEPARACION = 0.05    # aire entre teclas
 ALTO = 0.5           # alto de la tecla
 
 RESOLUCION = (1080, 1080)
@@ -103,7 +103,7 @@ def tecla(nombre):
     perfil = [
         (0.0, m, 0.10), (0.03, m, 0.10), (0.08, m * 0.995, 0.11),
         (h * 0.70, m * 0.90, 0.14), (h * 0.86, m * 0.86, 0.15), (h * 0.95, m * 0.80, 0.16),
-        (h, m * 0.74, 0.16),                       # borde de arriba
+        (h, m * 0.74, 0.18),                       # borde de arriba
         (h * 0.985, m * 0.70, 0.15),               # escalón hacia el plato
         (h * 0.975, m * 0.62, 0.13), (h * 0.97, m * 0.3, 0.13),
     ]
@@ -177,9 +177,9 @@ def plastico(nombre, color, rugosidad=0.42):
     # grano fino del PBT
     nt = mat.node_tree
     ruido = nt.nodes.new("ShaderNodeTexNoise")
-    ruido.inputs["Scale"].default_value = 900.0
+    ruido.inputs["Scale"].default_value = 520.0
     relieve = nt.nodes.new("ShaderNodeBump")
-    relieve.inputs["Strength"].default_value = 0.08
+    relieve.inputs["Strength"].default_value = 0.16
     relieve.inputs["Distance"].default_value = 0.002
     nt.links.new(ruido.outputs["Fac"], relieve.inputs["Height"])
     nt.links.new(relieve.outputs["Normal"], bsdf.inputs["Normal"])
@@ -193,13 +193,13 @@ def plastico_transparente(nombre, color):
     mat.use_nodes = True
     nt = mat.node_tree
     bsdf = nt.nodes.get("Principled BSDF")
-    bsdf.inputs["Base Color"].default_value = hex_a_lineal("#7FA0FF")  # superficie más clara
+    bsdf.inputs["Base Color"].default_value = hex_a_lineal("#B5C8FF")  # superficie clara: se lee como plástico translúcido
     entrada(bsdf, "Transmission Weight", "Transmission").default_value = 1.0
     bsdf.inputs["Roughness"].default_value = 0.18
     bsdf.inputs["IOR"].default_value = 1.49
     absorcion = nt.nodes.new("ShaderNodeVolumeAbsorption")
     absorcion.inputs["Color"].default_value = hex_a_lineal(color)
-    absorcion.inputs["Density"].default_value = 0.35
+    absorcion.inputs["Density"].default_value = 0.18
     nt.links.new(absorcion.outputs["Volume"], nt.nodes.get("Material Output").inputs["Volume"])
     mat.diffuse_color = hex_a_lineal(color)
     return mat
@@ -239,7 +239,7 @@ def configurar_mundo():
     mundo.use_nodes = True
     fondo = mundo.node_tree.nodes.get("Background")
     fondo.inputs["Color"].default_value = (1, 1, 1, 1)
-    fondo.inputs["Strength"].default_value = 0.3
+    fondo.inputs["Strength"].default_value = 0.45
 
 
 def configurar_render():
@@ -305,12 +305,23 @@ def main():
         ob.location = pos
         ob.rotation_euler = (centro - Vector(pos)).to_track_quat("-Z", "Y").to_euler()
         ob.visible_camera = False
+        return ob
 
     # softbox grande arriba a la izquierda: sombras suaves hacia abajo a la derecha
-    luz("Softbox", 520, (-4, 3, 9), 7)
+    # dos softbox: uno grande y alto, centrado (fondo parejo) y uno arriba a la izquierda
+    # que da la dirección de las sombras, como en la referencia
+    luz("Cenital", 380, (0, 0, 14), 24)
+    luz("Softbox", 320, (-3, 2.5, 8), 6)
     luz("Relleno", 90, (5, -4, 6), 6, (0.96, 0.97, 1.0))
     # contraluz baja detrás: hace brillar la tecla transparente
-    luz("Contraluz", 260, (-1.5, 5, 2), 3)
+    contra = luz("Contraluz", 320, (-1.5, 5, 2), 3)
+    # sólo ilumina la tecla transparente (light linking): no aclara el fondo de atrás
+    solo_transp = bpy.data.collections.new("Solo tecla transparente")
+    solo_transp.objects.link(bpy.data.objects["Tecla " + TRANSPARENTE])
+    try:
+        contra.light_linking.receiver_collection = solo_transp
+    except AttributeError:
+        pass
 
     configurar_mundo()
     configurar_render()

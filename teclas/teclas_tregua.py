@@ -58,12 +58,14 @@ COLOR_PARED = "#CFCFCF"   # pared del fondo, con luz y sombras de persiana
 FPS = 30
 DURACION = 8              # segundos del loop
 RECORRIDO = 0.22          # cuánto se hunde una tecla al apretarla (≈ 4 mm, como una real)
-SALTO = 0.55              # cuánto saltan hacia adelante al principio
+SALTO = 0.85              # cuánto saltan hacia adelante al principio
 # cuándo se aprieta cada letra de PALABRA (segundos): ritmo de alguien escribiendo, no de máquina
 TIEMPOS_LETRAS = [2.05, 2.38, 2.56, 3.02, 3.26, 3.72]
-TODAS_JUNTAS = 5.9        # momento en que se aprietan todas y la palabra se va
+TODAS_JUNTAS = 6.35       # momento en que se aprietan todas y la palabra se va
 TAMANO_PALABRA = 1.0      # alto del cuerpo de la tipografía de la palabra de arriba
 VOLUMEN = 0.9             # volumen general del sonido
+ACERCAMIENTO = 0.1        # cuánto se acerca la cámara mientras se escribe (fracción del lente)
+SEGUIR_TECLA = 0.15       # cuánto acompaña la cámara a la tecla que se aprieta (0 = quieta)
 # -----------------------------------------------------------------------------
 
 
@@ -418,6 +420,19 @@ class Pista:
             self.izq[i] += m * gi
             self.der[i] += m * gd
 
+    def sala(self, mezcla=0.18):
+        """Reverb de sala chica (filtros en peine), para que no suene seco y sintético."""
+        for canal, retardos in ((self.izq, (1116, 1356, 1491, 1617)), (self.der, (1188, 1277, 1422, 1557))):
+            seco = canal[:]
+            for d in retardos:
+                buf = array.array("f", bytes(4 * self.n))
+                g = 0.78
+                for i in range(self.n):
+                    v = seco[i] + g * buf[i - d]
+                    buf[i] = v
+                for i in range(self.n):
+                    canal[i] += mezcla / len(retardos) * buf[i]
+
     def guardar(self, ruta):
         pico = max(1e-6, max(max(map(abs, self.izq)), max(map(abs, self.der))))
         g = min(1.0, 0.92 / pico) * VOLUMEN
@@ -501,6 +516,13 @@ def main():
                 t.data.materials.append(azul_transp)
                 if VASTAGO:
                     partes.append(vastago(0, 0, azul_transp))
+            elif caracter in PALABRA:
+                # copia propia del material: se enciende un destello azul al apretarla
+                propio = (azul if caracter in AZULES else blanco).copy()
+                propio.name = "Destello " + caracter
+                bsdf_p = propio.node_tree.nodes.get("Principled BSDF")
+                entrada(bsdf_p, "Emission Color", "Emission").default_value = hex_a_lineal(COLOR_AZUL)
+                t.data.materials.append(propio)
             else:
                 t.data.materials.append(azul if caracter in AZULES else blanco)
             le = letra(caracter, "Letra " + caracter)
@@ -681,15 +703,66 @@ def main():
         for i, ob in enumerate(palabra):
             t_ap = TIEMPOS_LETRAS[i] + 0.05
             t_va = TODAS_JUNTAS + 0.12 + 0.05 * (len(palabra) - 1 - i)
+            destino = ob.location.copy()
+            # sale de la cara de su tecla y vuela en arco hasta su lugar en la palabra
+            origen = en_mundo(PALABRA[i]) + Vector((0, -ALTO - 0.05, 0))
+            vuelo = 0.42  # lo bastante lento para que se lea el recorrido
             for fr in range(total + 1):
-                e = escala_letra(fr / FPS, t_ap, t_va)
+                seg = fr / FPS
+                k = (seg - t_ap) / vuelo
+                if k <= 0:
+                    pos, e_vuelo = origen, 0.0
+                elif k < 1:
+                    u = 1 - (1 - k) ** 2                      # sale rápido y frena al llegar
+                    pos = origen.lerp(destino, u) + Vector((0, -0.9, 0.7)) * math.sin(math.pi * u)
+                    e_vuelo = 0.3 + 0.7 * u
+                else:
+                    pos, e_vuelo = destino, 1.0
+                e = escala_letra(seg, t_ap, t_va) if k >= 1 else e_vuelo * min(1.0, k * 6)
+                ob.location = pos
                 ob.scale = (e, e, e)
+                ob.keyframe_insert("location", frame=fr + 1)
                 ob.keyframe_insert("scale", frame=fr + 1)
+
+        # destello azul en la tecla apretada (sube rápido y se apaga)
+        for i, caracter in enumerate(PALABRA):
+            mat = bpy.data.materials.get("Destello " + caracter)
+            if not mat:
+                continue
+            fuerza_em = entrada(mat.node_tree.nodes.get("Principled BSDF"), "Emission Strength")
+            if not fuerza_em:
+                continue
+            t0 = TIEMPOS_LETRAS[i]
+            for fr in range(total + 1):
+                k = (fr / FPS - t0) / 0.45
+                fuerza_em.default_value = 0.0 if k <= 0 or k >= 1 else 2.0 * (1 - k) ** 2 * min(1, k * 8)
+                fuerza_em.keyframe_insert("default_value", frame=fr + 1)
+
+        # cámara: se acerca mientras se escribe y acompaña apenas a la tecla que se aprieta
+        lente_base = cam.data.lens
+        cam_base = cam.location.copy()
+        for fr in range(total + 1):
+            seg = fr / FPS
+            entra = min(1, max(0, (seg - 1.5) / 1.0))
+            sale = min(1, max(0, (seg - (TODAS_JUNTAS + 0.4)) / 1.0))
+            acerca = (entra * entra * (3 - 2 * entra)) * (1 - sale * sale * (3 - 2 * sale))
+            cam.data.lens = lente_base * (1 + ACERCAMIENTO * acerca)
+            cam.data.keyframe_insert("lens", frame=fr + 1)
+            # x de la última tecla apretada, suavizado
+            objetivo_x = 0.0
+            peso_total = 0.0
+            for caracter, t0 in zip(PALABRA, TIEMPOS_LETRAS):
+                w = math.exp(-((seg - t0 - 0.15) / 0.45) ** 2)
+                objetivo_x += w * posiciones[caracter][2]
+                peso_total += w
+            dx = (objetivo_x / peso_total if peso_total > 1e-3 else 0.0) * min(1.0, peso_total)
+            cam.location = cam_base + Vector((SEGUIR_TECLA * dx * acerca, 0, 0))
+            cam.keyframe_insert("location", frame=fr + 1)
 
         # cursor: va detrás de la última letra escrita y titila cuando no se escribe
         for fr in range(total + 1):
             seg = fr / FPS
-            escritas = sum(1 for t in TIEMPOS_LETRAS if seg >= t + 0.05)
+            escritas = sum(1 for t in TIEMPOS_LETRAS if seg >= t + 0.05 + 0.42)  # al llegar la letra
             if seg >= TODAS_JUNTAS + 0.12:
                 escritas = 0
             x = (escritas - (len(PALABRA) - 1) / 2 - 0.5) * avance + 0.04
@@ -714,11 +787,13 @@ def main():
             masiva = t0 >= TODAS_JUNTAS
             f_click = 0.5 if masiva else 1.0
             pista.sumar(t0 + 0.02, click(azar, f_click * fuerza), paneo)               # baja
+            pista.sumar(t0 + 0.055, golpe_suave(azar, 0.3 * f_click), paneo)          # tope
             pista.sumar(t0 + 0.32 * 0.4, click(azar, 0.35 * f_click, 1.25), paneo)     # vuelve
     for i, t in enumerate(TIEMPOS_LETRAS):
         pista.sumar(t + 0.06, pop(azar, 0.22), (i - 2.5) / 4)
     for i in range(len(PALABRA)):
         pista.sumar(TODAS_JUNTAS + 0.12 + 0.05 * (len(PALABRA) - 1 - i), pop(azar, 0.12), 0)
+    pista.sala()
     carpeta = bpy.path.abspath("//") if bpy.data.filepath else (bpy.app.tempdir or "/tmp")
     ruta_audio = os.path.join(carpeta, "teclas_tregua_sonido.wav")
     pista.guardar(ruta_audio)
